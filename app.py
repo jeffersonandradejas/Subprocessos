@@ -1,63 +1,56 @@
-import pandas as pd
 import streamlit as st
+import pandas as pd
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
-# URL da planilha pública no formato CSV
-url = "https://docs.google.com/spreadsheets/d/1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxKXTZv2sR4OQ/export?format=csv"
+# 🔐 Login simples
+st.title("🔐 Login")
+usuario = st.text_input("Usuário")
+senha = st.text_input("Senha", type="password")
 
-# Carregar os dados
-@st.cache_data
-def carregar_planilha():
-    df = pd.read_csv(url)
-    df.columns = df.columns.str.strip()  # remove espaços extras nos nomes das colunas
-    return df
-
-df = carregar_planilha()
-
-st.title("📄 Subprocessos Inteligentes")
-st.write("Planilha carregada com sucesso!")
-
-# Filtrar registros com status pendente
-status_invalidos = ["ENVIADO ACI", "ASSINAR OD CANCELADO", "ASSINAR CH"]
-df_filtrado = df[~df["STATUS"].isin(status_invalidos)]
-
-# Agrupar por FORNECEDOR e PAG
-agrupamentos = []
-for _, grupo in df_filtrado.groupby(["FORNECEDOR", "PAG"]):
-    blocos = [grupo.iloc[i:i+9] for i in range(0, len(grupo), 9)]
-    agrupamentos.extend(blocos)
-
-# Histórico de subprocessos
-if "historico" not in st.session_state:
-    st.session_state.historico = []
-
-# Exibir sugestões
-for i, bloco in enumerate(agrupamentos):
-    st.subheader(f"Subprocesso sugerido {i+1}")
-    st.dataframe(bloco)
-
-    texto = ""
-    for _, row in bloco.iterrows():
-        linha = f'{row["SOL"]}\t{row["APOIADA"]}\t{row["IL"]}\t{row["EMPENHO"]}\t{row["ID"]}\t{row["STATUS"]}\t{row["FORNECEDOR"]}\t{row["PAG"]}\t{row["PREGÃO"]}\t{row["VALOR"]}\t{row["DATA"]}'
-        texto += linha + "\n"
-
-    st.text_area("Copiar para o Intraer", texto, height=250, key=f"texto_{i}")
-
-    if st.button(f"✅ Marcar como executado - Sugestão {i+1}", key=f"executar_{i}"):
-        registro = {
-            "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
-            "fornecedor": bloco["FORNECEDOR"].iloc[0],
-            "pag": bloco["PAG"].iloc[0],
-            "ids": ", ".join(bloco["ID"].astype(str)),
-            "valor_total": bloco["VALOR"].sum()
-        }
-        st.session_state.historico.append(registro)
-        st.success("Subprocesso registrado no histórico!")
-
-# Histórico lateral
-st.sidebar.title("📋 Histórico de Subprocessos")
-if st.session_state.historico:
-    historico_df = pd.DataFrame(st.session_state.historico)
-    st.sidebar.dataframe(historico_df)
+if usuario and senha:
+    if senha != "1234":
+        st.error("Senha incorreta.")
+        st.stop()
 else:
-    st.sidebar.info("Nenhum subprocesso registrado ainda.")
+    st.stop()
+
+# ✅ Autenticação com Google Sheets
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name("subprocessos-inteligentes-4eb74c8a8177.json", scope)
+client = gspread.authorize(creds)
+
+# 📄 Abrir planilha e abas
+sheet = client.open("2024 - SOLICITAÇÃO DE EMPENHO")
+historico = sheet.worksheet("Histórico")
+reservas = sheet.worksheet("Reservas")
+
+# 📋 Mostrar histórico na barra lateral
+dados = historico.get_all_records()
+historico_df = pd.DataFrame(dados)
+st.sidebar.title("📋 Histórico de Subprocessos")
+st.sidebar.dataframe(historico_df.tail(10))
+
+# 📦 Simulação de sugestões (você pode trocar por seu DataFrame real)
+sugestoes = pd.DataFrame([
+    {"SOL": "123", "APOIADA": "Sim", "IL": "IL001", "EMPENHO": "EMP001", "ID": "A1", "STATUS": "Pendente", "FORNECEDOR": "Fornecedor X", "PAG": "Sim", "PREGÃO": "Pregão 1", "VALOR": 1000, "DATA": "2025-10-17"},
+    {"SOL": "124", "APOIADA": "Não", "IL": "IL002", "EMPENHO": "EMP002", "ID": "A2", "STATUS": "Pendente", "FORNECEDOR": "Fornecedor Y", "PAG": "Não", "PREGÃO": "Pregão 2", "VALOR": 2000, "DATA": "2025-10-17"},
+])
+
+st.subheader("🔎 Sugestões de Subprocessos")
+for i, row in sugestoes.iterrows():
+    with st.expander(f"Subprocesso {row['ID']}"):
+        st.write(row.to_dict())
+
+        if st.button(f"✅ Executar {row['ID']}", key=f"exec_{i}"):
+            historico.append_row([
+                row["SOL"], row["APOIADA"], row["IL"], row["EMPENHO"], row["ID"],
+                row["STATUS"], row["FORNECEDOR"], row["PAG"], row["PREGÃO"],
+                row["VALOR"], row["DATA"], usuario
+            ])
+            st.success(f"Subprocesso {row['ID']} registrado no histórico.")
+
+        if st.button(f"📌 Reservar {row['ID']}", key=f"res_{i}"):
+            reservas.append_row([row["ID"], usuario])
+            st.info(f"Subprocesso {row['ID']} reservado por {usuario}.")

@@ -16,13 +16,13 @@ if usuario and senha:
 else:
     st.stop()
 
-# ✅ Autenticação com Google Sheets via Secrets (sem json.loads)
+# ✅ Autenticação com Google Sheets via Secrets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_credentials"], scope)
 client = gspread.authorize(creds)
 
-# 📄 Abrir planilha e abas
-sheet = client.open("2024 - SOLICITAÇÃO DE EMPENHO")
+# 📄 Abrir planilha e abas usando o ID da planilha
+sheet = client.open_by_key("1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxKXTZv2sR4OQ")
 historico = sheet.worksheet("Histórico")
 reservas = sheet.worksheet("Reservas")
 

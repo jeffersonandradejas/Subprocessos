@@ -3,7 +3,6 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
-import json
 
 # 🔐 Login simples
 st.title("🔐 Login")
@@ -17,10 +16,9 @@ if usuario and senha:
 else:
     st.stop()
 
-# ✅ Autenticação com Google Sheets via Secrets
+# ✅ Autenticação com Google Sheets via Secrets (sem json.loads)
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds_dict = json.loads(st.secrets["gcp_credentials"])
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_credentials"], scope)
 client = gspread.authorize(creds)
 
 # 📄 Abrir planilha e abas
@@ -34,7 +32,7 @@ historico_df = pd.DataFrame(dados)
 st.sidebar.title("📋 Histórico de Subprocessos")
 st.sidebar.dataframe(historico_df.tail(10))
 
-# 📦 Simulação de sugestões (você pode trocar por seu DataFrame real)
+# 📦 Simulação de sugestões (substitua por seu DataFrame real se quiser)
 sugestoes = pd.DataFrame([
     {"SOL": "123", "APOIADA": "Sim", "IL": "IL001", "EMPENHO": "EMP001", "ID": "A1", "STATUS": "Pendente", "FORNECEDOR": "Fornecedor X", "PAG": "Sim", "PREGÃO": "Pregão 1", "VALOR": 1000, "DATA": "2025-10-17"},
     {"SOL": "124", "APOIADA": "Não", "IL": "IL002", "EMPENHO": "EMP002", "ID": "A2", "STATUS": "Pendente", "FORNECEDOR": "Fornecedor Y", "PAG": "Não", "PREGÃO": "Pregão 2", "VALOR": 2000, "DATA": "2025-10-17"},

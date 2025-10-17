@@ -28,47 +28,61 @@ scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/au
 creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_credentials"], scope)
 client = gspread.authorize(creds)
 
-# 📄 Abrir planilha e abas usando o ID da planilha
+# 📄 Abrir planilha e abas
 sheet = client.open_by_key("1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxKXTZv2sR4OQ")
 historico = sheet.worksheet("Histórico")
 reservas = sheet.worksheet("Reservas")
+execucoes = sheet.worksheet("Execuções")
+dados = sheet.worksheet("Dados")  # aba principal com os subprocessos
+
+# 📋 Carregar dados da aba "Dados"
+df = pd.DataFrame(dados.get_all_records())
+
+# 🔎 Agrupar por FORNECEDOR (máximo 9 linhas por grupo)
+agrupamentos = []
+for fornecedor, grupo in df.groupby("FORNECEDOR"):
+    for i in range(0, len(grupo), 9):
+        agrupamentos.append(grupo.iloc[i:i+9])
 
 # 📋 Mostrar histórico na barra lateral
-dados = historico.get_all_records()
-historico_df = pd.DataFrame(dados)
+dados_hist = historico.get_all_records()
+historico_df = pd.DataFrame(dados_hist)
 st.sidebar.title("📋 Histórico de Subprocessos")
 st.sidebar.dataframe(historico_df.tail(10))
 
-# 📦 Sugestões simuladas (substitua por seu DataFrame real se quiser)
-sugestoes = pd.DataFrame([
-    {"SOL": "123", "APOIADA": "Sim", "IL": "IL001", "EMPENHO": "EMP001", "ID": "A1", "STATUS": "Pendente", "FORNECEDOR": "Fornecedor X", "PAG": "Sim", "PREGÃO": "Pregão 1", "VALOR": 1000, "DATA": "2025-10-17"},
-    {"SOL": "124", "APOIADA": "Não", "IL": "IL002", "EMPENHO": "EMP002", "ID": "A2", "STATUS": "Pendente", "FORNECEDOR": "Fornecedor Y", "PAG": "Não", "PREGÃO": "Pregão 2", "VALOR": 2000, "DATA": "2025-10-17"},
-])
-
+# 📦 Exibir sugestões com campo de responsável
 st.subheader("🔎 Sugestões de Subprocessos")
-for i, row in sugestoes.iterrows():
-    with st.expander(f"Subprocesso {row['ID']}"):
-        st.write(f"**SOL:** {row['SOL']}")
-        st.write(f"**APOIADA:** {row['APOIADA']}")
-        st.write(f"**IL:** {row['IL']}")
-        st.write(f"**EMPENHO:** {row['EMPENHO']}")
-        st.write(f"**STATUS:** {row['STATUS']}")
-        st.write(f"**FORNECEDOR:** {row['FORNECEDOR']}")
-        st.write(f"**PAG:** {row['PAG']}")
-        st.write(f"**PREGÃO:** {row['PREGÃO']}")
-        st.write(f"**VALOR:** R$ {row['VALOR']}")
-        st.write(f"**DATA:** {row['DATA']}")
+reservas_data = reservas.get_all_records()
+reservas_df = pd.DataFrame(reservas_data)
+
+for i, grupo in enumerate(agrupamentos):
+    subprocesso_id = f"Subprocesso {i+1}"
+    with st.expander(f"{subprocesso_id} — {grupo.iloc[0]['FORNECEDOR']}"):
+        st.dataframe(grupo)
+
+        # Verificar se já foi reservado
+        reservado_por = reservas_df[reservas_df["ID"] == subprocesso_id]["Responsável"].values
+        if len(reservado_por) > 0:
+            st.warning(f"📌 Reservado por: {reservado_por[0]}")
+        else:
+            st.info("📌 Ainda não reservado")
 
         col1, col2 = st.columns(2)
         with col1:
-            if st.button(f"✅ Executar {row['ID']}", key=f"exec_{i}"):
-                historico.append_row([
-                    row["SOL"], row["APOIADA"], row["IL"], row["EMPENHO"], row["ID"],
-                    row["STATUS"], row["FORNECEDOR"], row["PAG"], row["PREGÃO"],
-                    row["VALOR"], row["DATA"], st.session_state.usuario
-                ])
-                st.success(f"Subprocesso {row['ID']} registrado no histórico.")
+            if st.button(f"✅ Executar {subprocesso_id}", key=f"exec_{i}"):
+                for _, row in grupo.iterrows():
+                    historico.append_row([
+                        row["SOL"], row["APOIADA"], row["IL"], row["EMPENHO"], row["ID"],
+                        row["STATUS"], row["FORNECEDOR"], row["PAG"], row["PREGÃO"],
+                        row["VALOR"], row["DATA"], st.session_state.usuario
+                    ])
+                    execucoes.append_row([
+                        row["SOL"], row["APOIADA"], row["IL"], row["EMPENHO"], row["ID"],
+                        row["FORNECEDOR"], row["PAG"], row["PREGÃO"], row["VALOR"],
+                        row["DATA"], st.session_state.usuario
+                    ])
+                st.success(f"{subprocesso_id} registrado no histórico e na aba Execuções.")
         with col2:
-            if st.button(f"📌 Reservar {row['ID']}", key=f"res_{i}"):
-                reservas.append_row([row["ID"], st.session_state.usuario])
-                st.info(f"Subprocesso {row['ID']} reservado por {st.session_state.usuario}.")
+            if st.button(f"📌 Reservar {subprocesso_id}", key=f"res_{i}"):
+                reservas.append_row([subprocesso_id, st.session_state.usuario])
+                st.info(f"{subprocesso_id} reservado por {st.session_state.usuario}.")

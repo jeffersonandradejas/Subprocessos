@@ -3,6 +3,7 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
+import json
 
 # 🔐 Login simples
 st.title("🔐 Login")
@@ -16,9 +17,10 @@ if usuario and senha:
 else:
     st.stop()
 
-# ✅ Autenticação com Google Sheets
+# ✅ Autenticação com Google Sheets via Secrets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("subprocessos-inteligentes-4eb74c8a8177.json", scope)
+creds_dict = json.loads(st.secrets["gcp_credentials"])
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 
 # 📄 Abrir planilha e abas

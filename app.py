@@ -48,16 +48,27 @@ sugestoes = pd.DataFrame([
 st.subheader("🔎 Sugestões de Subprocessos")
 for i, row in sugestoes.iterrows():
     with st.expander(f"Subprocesso {row['ID']}"):
-        st.json(row.to_dict())
+        st.write(f"**SOL:** {row['SOL']}")
+        st.write(f"**APOIADA:** {row['APOIADA']}")
+        st.write(f"**IL:** {row['IL']}")
+        st.write(f"**EMPENHO:** {row['EMPENHO']}")
+        st.write(f"**STATUS:** {row['STATUS']}")
+        st.write(f"**FORNECEDOR:** {row['FORNECEDOR']}")
+        st.write(f"**PAG:** {row['PAG']}")
+        st.write(f"**PREGÃO:** {row['PREGÃO']}")
+        st.write(f"**VALOR:** R$ {row['VALOR']}")
+        st.write(f"**DATA:** {row['DATA']}")
 
-        if st.button(f"✅ Executar {row['ID']}", key=f"exec_{i}"):
-            historico.append_row([
-                row["SOL"], row["APOIADA"], row["IL"], row["EMPENHO"], row["ID"],
-                row["STATUS"], row["FORNECEDOR"], row["PAG"], row["PREGÃO"],
-                row["VALOR"], row["DATA"], st.session_state.usuario
-            ])
-            st.success(f"Subprocesso {row['ID']} registrado no histórico.")
-
-        if st.button(f"📌 Reservar {row['ID']}", key=f"res_{i}"):
-            reservas.append_row([row["ID"], st.session_state.usuario])
-            st.info(f"Subprocesso {row['ID']} reservado por {st.session_state.usuario}.")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button(f"✅ Executar {row['ID']}", key=f"exec_{i}"):
+                historico.append_row([
+                    row["SOL"], row["APOIADA"], row["IL"], row["EMPENHO"], row["ID"],
+                    row["STATUS"], row["FORNECEDOR"], row["PAG"], row["PREGÃO"],
+                    row["VALOR"], row["DATA"], st.session_state.usuario
+                ])
+                st.success(f"Subprocesso {row['ID']} registrado no histórico.")
+        with col2:
+            if st.button(f"📌 Reservar {row['ID']}", key=f"res_{i}"):
+                reservas.append_row([row["ID"], st.session_state.usuario])
+                st.info(f"Subprocesso {row['ID']} reservado por {st.session_state.usuario}.")

@@ -4,16 +4,21 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
-# 🔐 Login simples
-st.title("🔐 Login")
-usuario = st.text_input("Usuário")
-senha = st.text_input("Senha", type="password")
+# 🔐 Login simples com controle de sessão
+if "autenticado" not in st.session_state:
+    st.session_state.autenticado = False
 
-if usuario and senha:
-    if senha != "1234":
-        st.error("Senha incorreta.")
-        st.stop()
-else:
+if not st.session_state.autenticado:
+    st.title("🔐 Login")
+    usuario = st.text_input("Usuário")
+    senha = st.text_input("Senha", type="password")
+    if st.button("Entrar"):
+        if senha == "1234":
+            st.session_state.autenticado = True
+            st.session_state.usuario = usuario
+            st.experimental_rerun()
+        else:
+            st.error("Senha incorreta.")
     st.stop()
 
 # ✅ Autenticação com Google Sheets via Secrets
@@ -32,7 +37,7 @@ historico_df = pd.DataFrame(dados)
 st.sidebar.title("📋 Histórico de Subprocessos")
 st.sidebar.dataframe(historico_df.tail(10))
 
-# 📦 Simulação de sugestões (substitua por seu DataFrame real se quiser)
+# 📦 Sugestões simuladas (substitua por seu DataFrame real se quiser)
 sugestoes = pd.DataFrame([
     {"SOL": "123", "APOIADA": "Sim", "IL": "IL001", "EMPENHO": "EMP001", "ID": "A1", "STATUS": "Pendente", "FORNECEDOR": "Fornecedor X", "PAG": "Sim", "PREGÃO": "Pregão 1", "VALOR": 1000, "DATA": "2025-10-17"},
     {"SOL": "124", "APOIADA": "Não", "IL": "IL002", "EMPENHO": "EMP002", "ID": "A2", "STATUS": "Pendente", "FORNECEDOR": "Fornecedor Y", "PAG": "Não", "PREGÃO": "Pregão 2", "VALOR": 2000, "DATA": "2025-10-17"},
@@ -41,16 +46,16 @@ sugestoes = pd.DataFrame([
 st.subheader("🔎 Sugestões de Subprocessos")
 for i, row in sugestoes.iterrows():
     with st.expander(f"Subprocesso {row['ID']}"):
-        st.write(row.to_dict())
+        st.json(row.to_dict())
 
         if st.button(f"✅ Executar {row['ID']}", key=f"exec_{i}"):
             historico.append_row([
                 row["SOL"], row["APOIADA"], row["IL"], row["EMPENHO"], row["ID"],
                 row["STATUS"], row["FORNECEDOR"], row["PAG"], row["PREGÃO"],
-                row["VALOR"], row["DATA"], usuario
+                row["VALOR"], row["DATA"], st.session_state.usuario
             ])
             st.success(f"Subprocesso {row['ID']} registrado no histórico.")
 
         if st.button(f"📌 Reservar {row['ID']}", key=f"res_{i}"):
-            reservas.append_row([row["ID"], usuario])
-            st.info(f"Subprocesso {row['ID']} reservado por {usuario}.")
+            reservas.append_row([row["ID"], st.session_state.usuario])
+            st.info(f"Subprocesso {row['ID']} reservado por {st.session_state.usuario}.")

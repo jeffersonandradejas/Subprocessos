@@ -4,10 +4,13 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
-# 🔐 Login simples com controle de sessão
+# 🔐 Controle de sessão para login
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
+if "usuario" not in st.session_state:
+    st.session_state.usuario = ""
 
+# 🔐 Tela de login
 if not st.session_state.autenticado:
     st.title("🔐 Login")
     usuario = st.text_input("Usuário")
@@ -16,7 +19,6 @@ if not st.session_state.autenticado:
         if senha == "1234":
             st.session_state.autenticado = True
             st.session_state.usuario = usuario
-            st.experimental_rerun()
         else:
             st.error("Senha incorreta.")
     st.stop()

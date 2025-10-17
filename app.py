@@ -8,7 +8,9 @@ url = "https://docs.google.com/spreadsheets/d/1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxK
 # Carregar os dados
 @st.cache_data
 def carregar_planilha():
-    return pd.read_csv(url)
+    df = pd.read_csv(url)
+    df.columns = df.columns.str.strip()  # remove espaços extras nos nomes das colunas
+    return df
 
 df = carregar_planilha()
 

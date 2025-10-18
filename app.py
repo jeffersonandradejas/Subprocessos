@@ -32,14 +32,23 @@ sheet = client.open_by_key("1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxKXTZv2sR4OQ")
 historico = sheet.worksheet("Histórico")
 reservas = sheet.worksheet("Reservas")
 execucoes = sheet.worksheet("Execuções")
-dados = sheet.worksheet("Dados")  # aba principal com os subprocessos
+aba_principal = sheet.get_worksheet(0)  # primeira aba da planilha
+df = pd.DataFrame(aba_principal.get_all_records())
 
-# 📋 Carregar dados da aba "Dados"
-df = pd.DataFrame(dados.get_all_records())
-
-# 🔎 Agrupar por FORNECEDOR (máximo 9 linhas por grupo)
+# 🔎 Agrupamento preferencial por FORNECEDOR, secundário por PAG
 agrupamentos = []
+usados = set()
+
+# 1️⃣ Agrupar por FORNECEDOR
 for fornecedor, grupo in df.groupby("FORNECEDOR"):
+    for i in range(0, len(grupo), 9):
+        bloco = grupo.iloc[i:i+9]
+        agrupamentos.append(bloco)
+        usados.update(bloco.index)
+
+# 2️⃣ Agrupar por PAG para linhas não usadas
+restantes = df.loc[~df.index.isin(usados)]
+for pag, grupo in restantes.groupby("PAG"):
     for i in range(0, len(grupo), 9):
         agrupamentos.append(grupo.iloc[i:i+9])
 
@@ -72,7 +81,7 @@ for i, grupo in enumerate(agrupamentos):
                 for _, row in grupo.iterrows():
                     historico.append_row([
                         row["SOL"], row["APOIADA"], row["IL"], row["EMPENHO"], row["ID"],
-                        row["STATUS"], row["FORNECEDOR"], row["PAG"], row["PREGÃO"],
+                        row.get("STATUS", ""), row["FORNECEDOR"], row["PAG"], row["PREGÃO"],
                         row["VALOR"], row["DATA"], st.session_state.usuario
                     ])
                     execucoes.append_row([

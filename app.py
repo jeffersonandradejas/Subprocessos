@@ -33,7 +33,10 @@ historico = sheet.worksheet("Histórico")
 reservas = sheet.worksheet("Reservas")
 execucoes = sheet.worksheet("Execuções")
 aba_principal = sheet.get_worksheet(0)  # primeira aba da planilha
-df = pd.DataFrame(aba_principal.get_all_records())
+
+# ✅ Leitura robusta dos dados
+dados_brutos = aba_principal.get_all_values()
+df = pd.DataFrame(dados_brutos[1:], columns=dados_brutos[0])
 
 # 🔎 Agrupamento preferencial por FORNECEDOR, secundário por PAG
 agrupamentos = []
@@ -41,14 +44,17 @@ usados = set()
 
 # 1️⃣ Agrupar por FORNECEDOR
 for fornecedor, grupo in df.groupby("FORNECEDOR"):
+    grupo = grupo.reset_index(drop=True)
     for i in range(0, len(grupo), 9):
         bloco = grupo.iloc[i:i+9]
         agrupamentos.append(bloco)
         usados.update(bloco.index)
 
 # 2️⃣ Agrupar por PAG para linhas não usadas
-restantes = df.loc[~df.index.isin(usados)]
+df_reset = df.reset_index(drop=True)
+restantes = df_reset.loc[~df_reset.index.isin(usados)]
 for pag, grupo in restantes.groupby("PAG"):
+    grupo = grupo.reset_index(drop=True)
     for i in range(0, len(grupo), 9):
         agrupamentos.append(grupo.iloc[i:i+9])
 

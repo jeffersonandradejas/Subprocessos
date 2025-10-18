@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime
 
 # 🔐 Controle de sessão para login
 if "autenticado" not in st.session_state:
@@ -32,41 +31,74 @@ client = gspread.authorize(creds)
 sheet = client.open_by_key("1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxKXTZv2sR4OQ")
 historico = sheet.worksheet("Histórico")
 reservas = sheet.worksheet("Reservas")
-dados = sheet.worksheet("Dados")  # aba principal com os subprocessos
+execucoes = sheet.worksheet("Execuções")
+aba_principal = sheet.get_worksheet(0)  # acessa a primeira aba da planilha
 
-# 📋 Carregar dados da aba "Dados"
-df = pd.DataFrame(dados.get_all_records())
+# ✅ Leitura robusta dos dados
+dados_brutos = aba_principal.get_all_values()
+df = pd.DataFrame(dados_brutos[1:], columns=[col.strip() for col in dados_brutos[0]])
 
-# 🔎 Agrupar por FORNECEDOR ou PAG (máximo 9 linhas por grupo)
+# 🔎 Agrupamento preferencial por FORNECEDOR, secundário por PAG
 agrupamentos = []
+usados = set()
+df_reset = df.reset_index(drop=True)
 
-# Agrupar por FORNECEDOR
-for fornecedor, grupo in df.groupby("FORNECEDOR"):
-    for i in range(0, len(grupo), 9):
-        agrupamentos.append(grupo.iloc[i:i+9])
+# 1️⃣ Agrupar por FORNECEDOR
+if "FORNECEDOR" in df.columns:
+    for fornecedor, grupo in df_reset.groupby("FORNECEDOR"):
+        grupo = grupo.reset_index(drop=True)
+        for i in range(0, len(grupo), 9):
+            bloco = grupo.iloc[i:i+9]
+            agrupamentos.append(bloco)
+            usados.update(bloco.index)
 
-# Agrupar por PAG (caso queira usar isso como alternativa)
-# for pag, grupo in df.groupby("PAG"):
-#     for i in range(0, len(grupo), 9):
-#         agrupamentos.append(grupo.iloc[i:i+9])
+# 2️⃣ Agrupar por PAG para linhas não usadas
+restantes = df_reset.loc[~df_reset.index.isin(usados)]
+if "PAG" in df.columns:
+    for pag, grupo in restantes.groupby("PAG"):
+        grupo = grupo.reset_index(drop=True)
+        for i in range(0, len(grupo), 9):
+            agrupamentos.append(grupo.iloc[i:i+9])
 
-# 📦 Exibir cada agrupamento como um subprocesso
+# 📋 Mostrar histórico na barra lateral
+dados_hist = historico.get_all_records()
+historico_df = pd.DataFrame(dados_hist)
+st.sidebar.title("📋 Histórico de Subprocessos")
+st.sidebar.dataframe(historico_df.tail(10))
+
+# 📦 Exibir sugestões com campo de responsável
 st.subheader("🔎 Sugestões de Subprocessos")
+reservas_data = reservas.get_all_records()
+reservas_df = pd.DataFrame(reservas_data)
+
 for i, grupo in enumerate(agrupamentos):
-    with st.expander(f"Subprocesso {i+1} — {grupo.iloc[0]['FORNECEDOR']}"):
+    subprocesso_id = f"Subprocesso {i+1}"
+    with st.expander(f"{subprocesso_id} — {grupo.iloc[0]['FORNECEDOR']}"):
         st.dataframe(grupo)
+
+        # Verificar se já foi reservado
+        reservado_por = reservas_df[reservas_df["ID"] == subprocesso_id]["Responsável"].values
+        if len(reservado_por) > 0:
+            st.warning(f"📌 Reservado por: {reservado_por[0]}")
+        else:
+            st.info("📌 Ainda não reservado")
 
         col1, col2 = st.columns(2)
         with col1:
-            if st.button(f"✅ Executar Subprocesso {i+1}", key=f"exec_{i}"):
+            if st.button(f"✅ Executar {subprocesso_id}", key=f"exec_{i}"):
                 for _, row in grupo.iterrows():
                     historico.append_row([
-                        row["SOL"], row["APOIADA"], row["IL"], row["EMPENHO"], row["ID"],
-                        row["STATUS"], row["FORNECEDOR"], row["PAG"], row["PREGÃO"],
-                        row["VALOR"], row["DATA"], st.session_state.usuario
+                        row.get("SOL", ""), row.get("APOIADA", ""), row.get("IL", ""), row.get("EMPENHO", ""), row.get("ID", ""),
+                        row.get("STATUS", ""), row.get("FORNECEDOR", ""), row.get("PAG", ""), row.get("PREGÃO", ""),
+                        row.get("VALOR", ""), row.get("DATA", ""), st.session_state.usuario
                     ])
-                st.success(f"Subprocesso {i+1} registrado no histórico.")
+                    execucoes.append_row([
+                        row.get("SOL", ""), row.get("APOIADA", ""), row.get("IL", ""), row.get("EMPENHO", ""), row.get("ID", ""),
+                        row.get("FORNECEDOR", ""), row.get("PAG", ""), row.get("PREGÃO", ""), row.get("VALOR", ""),
+                        row.get("DATA", ""), st.session_state.usuario
+                    ])
+                st.success(f"{subprocesso_id} registrado no histórico e na aba Execuções.")
         with col2:
-            if st.button(f"📌 Reservar Subprocesso {i+1}", key=f"res_{i}"):
-                reservas.append_row([f"Subprocesso {i+1}", st.session_state.usuario])
-                st.info(f"Subprocesso {i+1} reservado por {st.session_state.usuario}.")
+            if st.button(f"📌 Reservar {subprocesso_id}", key=f"res_{i}"):
+                reservas.append_row([subprocesso_id, st.session_state.usuario])
+                st.info(f"{subprocesso_id} reservado por {st.session_state.usuario}.")

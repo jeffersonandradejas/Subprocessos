@@ -36,13 +36,31 @@ for i, bloco in enumerate(agrupamentos):
     st.subheader(f"Subprocesso sugerido {i+1}")
     st.dataframe(bloco)
 
+    # Montar texto para copiar
     texto = ""
     for _, row in bloco.iterrows():
         linha = f'{row["SOL"]}\t{row["APOIADA"]}\t{row["IL"]}\t{row["EMPENHO"]}\t{row["ID"]}\t{row["STATUS"]}\t{row["FORNECEDOR"]}\t{row["PAG"]}\t{row["PREGÃO"]}\t{row["VALOR"]}\t{row["DATA"]}'
         texto += linha + "\n"
 
-    st.text_area("Copiar para o Intraer", texto, height=250, key=f"texto_{i}")
+    # Controle de execução por sessão
+    exec_key = f"em_execucao_{i}"
+    if exec_key not in st.session_state:
+        st.session_state[exec_key] = False
 
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.text_area("Copiar para o Intraer", texto, height=250, key=f"texto_{i}", disabled=st.session_state[exec_key])
+    with col2:
+        if not st.session_state[exec_key]:
+            if st.button(f"❌ Marcar como em execução", key=f"bloquear_{i}"):
+                st.session_state[exec_key] = True
+                st.warning("Este subprocesso foi marcado como em execução.")
+        else:
+            if st.button(f"🔓 Liberar execução", key=f"desbloquear_{i}"):
+                st.session_state[exec_key] = False
+                st.info("Subprocesso liberado para edição.")
+
+    # Botão de execução
     if st.button(f"✅ Marcar como executado - Sugestão {i+1}", key=f"executar_{i}"):
         registro = {
             "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
@@ -53,6 +71,7 @@ for i, bloco in enumerate(agrupamentos):
         }
         st.session_state.historico.append(registro)
         st.success("Subprocesso registrado no histórico!")
+        st.session_state[exec_key] = False  # libera após execução
 
 # Histórico lateral
 st.sidebar.title("📋 Histórico de Subprocessos")

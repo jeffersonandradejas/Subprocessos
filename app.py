@@ -9,7 +9,6 @@ url = "https://docs.google.com/spreadsheets/d/1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxK
 def carregar_planilha():
     df = pd.read_csv(url)
     df.columns = df.columns.str.strip()
-    df["STATUS"] = df["STATUS"].astype(str).str.lower().str.strip()
     return df
 
 df = carregar_planilha()
@@ -17,8 +16,9 @@ df = carregar_planilha()
 st.title("📄 Subprocessos Inteligentes")
 st.write("Planilha carregada com sucesso!")
 
-# ✅ Filtro robusto: ignora cancelado e enviado ACI
-df_filtrado = df[~df["STATUS"].str.contains("cancelado|enviado aci", na=False)]
+# ✅ Filtro robusto: ignora cancelado e enviado ACI sem alterar os dados originais
+status_temp = df["STATUS"].astype(str).str.lower().str.strip()
+df_filtrado = df[~status_temp.str.contains("cancelado|enviado aci", na=False)]
 
 # Agrupar por FORNECEDOR e PAG
 agrupamentos = []

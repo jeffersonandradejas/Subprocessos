@@ -1,104 +1,63 @@
-import streamlit as st
 import pandas as pd
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+import streamlit as st
+from datetime import datetime
 
-# 🔐 Controle de sessão para login
-if "autenticado" not in st.session_state:
-    st.session_state.autenticado = False
-if "usuario" not in st.session_state:
-    st.session_state.usuario = ""
+# URL da planilha pública no formato CSV
+url = "https://docs.google.com/spreadsheets/d/1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxKXTZv2sR4OQ/export?format=csv"
 
-# 🔐 Tela de login
-if not st.session_state.autenticado:
-    st.title("🔐 Login")
-    usuario = st.text_input("Usuário")
-    senha = st.text_input("Senha", type="password")
-    if st.button("Entrar"):
-        if senha == "1234":
-            st.session_state.autenticado = True
-            st.session_state.usuario = usuario
-        else:
-            st.error("Senha incorreta.")
-    st.stop()
+# Carregar os dados
+@st.cache_data
+def carregar_planilha():
+    df = pd.read_csv(url)
+    df.columns = df.columns.str.strip()  # remove espaços extras nos nomes das colunas
+    return df
 
-# ✅ Autenticação com Google Sheets via Secrets
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_credentials"], scope)
-client = gspread.authorize(creds)
+df = carregar_planilha()
 
-# 📄 Abrir planilha e abas
-sheet = client.open_by_key("1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxKXTZv2sR4OQ")
-historico = sheet.worksheet("Histórico")
-reservas = sheet.worksheet("Reservas")
-execucoes = sheet.worksheet("Execuções")
-aba_principal = sheet.get_worksheet(0)  # acessa a primeira aba da planilha
+st.title("📄 Subprocessos Inteligentes")
+st.write("Planilha carregada com sucesso!")
 
-# ✅ Leitura robusta dos dados
-dados_brutos = aba_principal.get_all_values()
-df = pd.DataFrame(dados_brutos[1:], columns=[col.strip() for col in dados_brutos[0]])
+# Filtrar registros com status pendente
+status_invalidos = ["ENVIADO ACI", "ASSINAR OD CANCELADO", "ASSINAR CH"]
+df_filtrado = df[~df["STATUS"].isin(status_invalidos)]
 
-# 🔎 Agrupamento preferencial por FORNECEDOR, secundário por PAG
+# Agrupar por FORNECEDOR e PAG
 agrupamentos = []
-usados = set()
-df_reset = df.reset_index(drop=True)
+for _, grupo in df_filtrado.groupby(["FORNECEDOR", "PAG"]):
+    blocos = [grupo.iloc[i:i+9] for i in range(0, len(grupo), 9)]
+    agrupamentos.extend(blocos)
 
-# 1️⃣ Agrupar por FORNECEDOR
-if "FORNECEDOR" in df.columns:
-    for fornecedor, grupo in df_reset.groupby("FORNECEDOR"):
-        grupo = grupo.reset_index(drop=True)
-        for i in range(0, len(grupo), 9):
-            bloco = grupo.iloc[i:i+9]
-            agrupamentos.append(bloco)
-            usados.update(bloco.index)
+# Histórico de subprocessos
+if "historico" not in st.session_state:
+    st.session_state.historico = []
 
-# 2️⃣ Agrupar por PAG para linhas não usadas
-restantes = df_reset.loc[~df_reset.index.isin(usados)]
-if "PAG" in df.columns:
-    for pag, grupo in restantes.groupby("PAG"):
-        grupo = grupo.reset_index(drop=True)
-        for i in range(0, len(grupo), 9):
-            agrupamentos.append(grupo.iloc[i:i+9])
+# Exibir sugestões
+for i, bloco in enumerate(agrupamentos):
+    st.subheader(f"Subprocesso sugerido {i+1}")
+    st.dataframe(bloco)
 
-# 📋 Mostrar histórico na barra lateral
-dados_hist = historico.get_all_records()
-historico_df = pd.DataFrame(dados_hist)
+    texto = ""
+    for _, row in bloco.iterrows():
+        linha = f'{row["SOL"]}\t{row["APOIADA"]}\t{row["IL"]}\t{row["EMPENHO"]}\t{row["ID"]}\t{row["STATUS"]}\t{row["FORNECEDOR"]}\t{row["PAG"]}\t{row["PREGÃO"]}\t{row["VALOR"]}\t{row["DATA"]}'
+        texto += linha + "\n"
+
+    st.text_area("Copiar para o Intraer", texto, height=250, key=f"texto_{i}")
+
+    if st.button(f"✅ Marcar como executado - Sugestão {i+1}", key=f"executar_{i}"):
+        registro = {
+            "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "fornecedor": bloco["FORNECEDOR"].iloc[0],
+            "pag": bloco["PAG"].iloc[0],
+            "ids": ", ".join(bloco["ID"].astype(str)),
+            "valor_total": bloco["VALOR"].sum()
+        }
+        st.session_state.historico.append(registro)
+        st.success("Subprocesso registrado no histórico!")
+
+# Histórico lateral
 st.sidebar.title("📋 Histórico de Subprocessos")
-st.sidebar.dataframe(historico_df.tail(10))
-
-# 📦 Exibir sugestões com campo de responsável
-st.subheader("🔎 Sugestões de Subprocessos")
-reservas_data = reservas.get_all_records()
-reservas_df = pd.DataFrame(reservas_data)
-
-for i, grupo in enumerate(agrupamentos):
-    subprocesso_id = f"Subprocesso {i+1}"
-    with st.expander(f"{subprocesso_id} — {grupo.iloc[0]['FORNECEDOR']}"):
-        st.dataframe(grupo)
-
-        # Verificar se já foi reservado
-        reservado_por = reservas_df[reservas_df["ID"] == subprocesso_id]["Responsável"].values
-        if len(reservado_por) > 0:
-            st.warning(f"📌 Reservado por: {reservado_por[0]}")
-        else:
-            st.info("📌 Ainda não reservado")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button(f"✅ Executar {subprocesso_id}", key=f"exec_{i}"):
-                for _, row in grupo.iterrows():
-                    historico.append_row([
-                        row.get("SOL", ""), row.get("APOIADA", ""), row.get("IL", ""), row.get("EMPENHO", ""), row.get("ID", ""),
-                        row.get("STATUS", ""), row.get("FORNECEDOR", ""), row.get("PAG", ""), row.get("PREGÃO", ""),
-                        row.get("VALOR", ""), row.get("DATA", ""), st.session_state.usuario
-                    ])
-                    execucoes.append_row([
-                        row.get("SOL", ""), row.get("APOIADA", ""), row.get("IL", ""), row.get("EMPENHO", ""), row.get("ID", ""),
-                        row.get("FORNECEDOR", ""), row.get("PAG", ""), row.get("PREGÃO", ""), row.get("VALOR", ""),
-                        row.get("DATA", ""), st.session_state.usuario
-                    ])
-                st.success(f"{subprocesso_id} registrado no histórico e na aba Execuções.")
-        with col2:
-            if st.button(f"📌 Reservar {subprocesso_id}", key=f"res_{i}"):
-                reservas.append_row([subprocesso_id, st.session_state.usuario])
-                st.info(f"{subprocesso_id} reservado por {st.session_state.usuario}.")
+if st.session_state.historico:
+    historico_df = pd.DataFrame(st.session_state.historico)
+    st.sidebar.dataframe(historico_df)
+else:
+    st.sidebar.info("Nenhum subprocesso registrado ainda.")

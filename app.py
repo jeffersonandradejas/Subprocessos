@@ -9,7 +9,7 @@ url = "https://docs.google.com/spreadsheets/d/1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxK
 @st.cache_data
 def carregar_planilha():
     df = pd.read_csv(url)
-    df.columns = df.columns.str.strip()  # remove espaços extras nos nomes das colunas
+    df.columns = df.columns.str.strip()
     return df
 
 df = carregar_planilha()
@@ -17,7 +17,7 @@ df = carregar_planilha()
 st.title("📄 Subprocessos Inteligentes")
 st.write("Planilha carregada com sucesso!")
 
-# 🔍 Filtrar registros com status inválido (cancelado ou enviado ACI)
+# 🔍 Filtrar registros com status inválido
 status_invalidos = ["cancelado", "enviado ACI"]
 df_filtrado = df[~df["STATUS"].str.lower().str.contains("|".join(status_invalidos), na=False)]
 
@@ -41,29 +41,30 @@ for i, bloco in enumerate(agrupamentos):
     if exec_key not in st.session_state:
         st.session_state[exec_key] = False
 
-    col1, col2 = st.columns([5, 1])
-    with col2:
+    # Botões lado a lado
+    col1, col2 = st.columns(2)
+    with col1:
         if not st.session_state[exec_key]:
-            if st.button(f"❌ Marcar como em execução", key=f"bloquear_{i}"):
+            if st.button("❌ Marcar como em execução", key=f"bloquear_{i}"):
                 st.session_state[exec_key] = True
                 st.warning("Este subprocesso foi marcado como em execução.")
         else:
-            if st.button(f"🔓 Liberar execução", key=f"desbloquear_{i}"):
+            if st.button("🔓 Liberar execução", key=f"desbloquear_{i}"):
                 st.session_state[exec_key] = False
                 st.info("Subprocesso liberado para edição.")
 
-    # Botão de execução
-    if st.button(f"✅ Marcar como executado - Sugestão {i+1}", key=f"executar_{i}"):
-        registro = {
-            "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
-            "fornecedor": bloco["FORNECEDOR"].iloc[0],
-            "pag": bloco["PAG"].iloc[0],
-            "ids": ", ".join(bloco["ID"].astype(str)),
-            "valor_total": bloco["VALOR"].sum()
-        }
-        st.session_state.historico.append(registro)
-        st.success("Subprocesso registrado no histórico!")
-        st.session_state[exec_key] = False  # libera após execução
+    with col2:
+        if st.button("✅ Marcar como executado", key=f"executar_{i}"):
+            registro = {
+                "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                "fornecedor": bloco["FORNECEDOR"].iloc[0],
+                "pag": bloco["PAG"].iloc[0],
+                "ids": ", ".join(bloco["ID"].astype(str)),
+                "valor_total": bloco["VALOR"].sum()
+            }
+            st.session_state.historico.append(registro)
+            st.success("Subprocesso registrado no histórico!")
+            st.session_state[exec_key] = False  # libera após execução
 
 # Histórico lateral
 st.sidebar.title("📋 Histórico de Subprocessos")

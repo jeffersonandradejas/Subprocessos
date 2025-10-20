@@ -9,6 +9,7 @@ url = "https://docs.google.com/spreadsheets/d/1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxK
 def carregar_planilha():
     df = pd.read_csv(url)
     df.columns = df.columns.str.strip()
+    df["STATUS"] = df["STATUS"].astype(str).str.lower().str.strip()
     return df
 
 df = carregar_planilha()
@@ -16,9 +17,8 @@ df = carregar_planilha()
 st.title("📄 Subprocessos Inteligentes")
 st.write("Planilha carregada com sucesso!")
 
-# Filtrar registros com status inválido
-status_invalidos = ["cancelado", "enviado ACI"]
-df_filtrado = df[~df["STATUS"].str.lower().str.contains("|".join(status_invalidos), na=False)]
+# ✅ Filtro robusto: ignora cancelado e enviado ACI
+df_filtrado = df[~df["STATUS"].str.contains("cancelado|enviado aci", na=False)]
 
 # Agrupar por FORNECEDOR e PAG
 agrupamentos = []
@@ -76,7 +76,7 @@ for i, bloco in enumerate(agrupamentos_pagina):
                 st.warning("Subprocesso marcado como em execução.")
 
     with col2:
-        if st.button("✅ Marcar como executado", key=f"finalizar_{indice_global}"):
+        if st.button("✔ Marcar como executado", key=f"finalizar_{indice_global}"):
             registro = {
                 "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
                 "fornecedor": bloco["FORNECEDOR"].iloc[0],
@@ -89,15 +89,17 @@ for i, bloco in enumerate(agrupamentos_pagina):
             if id_bloco in st.session_state.execucoes_globais:
                 st.session_state.execucoes_globais.remove(id_bloco)
 
-# Navegação de página (agora no final)
+# ✅ Navegação de página no final com clique único
 st.write(f"📄 Página {st.session_state.pagina_atual + 1} de {total_paginas}")
 col_nav1, col_nav2 = st.columns([1, 1])
-with col_nav1:
-    if st.button("⬅ Página anterior") and st.session_state.pagina_atual > 0:
-        st.session_state.pagina_atual -= 1
-with col_nav2:
-    if st.button("➡ Próxima página") and st.session_state.pagina_atual < total_paginas - 1:
-        st.session_state.pagina_atual += 1
+pagina_anterior = col_nav1.button("⬅ Página anterior")
+pagina_proxima = col_nav2.button("➡ Próxima página")
+
+if pagina_anterior and st.session_state.pagina_atual > 0:
+    st.session_state.pagina_atual -= 1
+
+if pagina_proxima and st.session_state.pagina_atual < total_paginas - 1:
+    st.session_state.pagina_atual += 1
 
 # Histórico lateral
 st.sidebar.title("📋 Histórico de Subprocessos")

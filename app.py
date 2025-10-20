@@ -17,9 +17,9 @@ df = carregar_planilha()
 st.title("📄 Subprocessos Inteligentes")
 st.write("Planilha carregada com sucesso!")
 
-# Filtrar registros com status pendente
-status_invalidos = ["ENVIADO ACI", "ASSINAR OD CANCELADO", "ASSINAR CH"]
-df_filtrado = df[~df["STATUS"].isin(status_invalidos)]
+# 🔍 Filtrar registros com status inválido (cancelado ou enviado ACI)
+status_invalidos = ["cancelado", "enviado ACI"]
+df_filtrado = df[~df["STATUS"].str.lower().str.contains("|".join(status_invalidos), na=False)]
 
 # Agrupar por FORNECEDOR e PAG
 agrupamentos = []
@@ -36,20 +36,12 @@ for i, bloco in enumerate(agrupamentos):
     st.subheader(f"Subprocesso sugerido {i+1}")
     st.dataframe(bloco)
 
-    # Montar texto para copiar
-    texto = ""
-    for _, row in bloco.iterrows():
-        linha = f'{row["SOL"]}\t{row["APOIADA"]}\t{row["IL"]}\t{row["EMPENHO"]}\t{row["ID"]}\t{row["STATUS"]}\t{row["FORNECEDOR"]}\t{row["PAG"]}\t{row["PREGÃO"]}\t{row["VALOR"]}\t{row["DATA"]}'
-        texto += linha + "\n"
-
     # Controle de execução por sessão
     exec_key = f"em_execucao_{i}"
     if exec_key not in st.session_state:
         st.session_state[exec_key] = False
 
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.text_area("Copiar para o Intraer", texto, height=250, key=f"texto_{i}", disabled=st.session_state[exec_key])
+    col1, col2 = st.columns([5, 1])
     with col2:
         if not st.session_state[exec_key]:
             if st.button(f"❌ Marcar como em execução", key=f"bloquear_{i}"):

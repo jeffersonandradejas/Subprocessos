@@ -1,14 +1,33 @@
 import pandas as pd
 import streamlit as st
 from datetime import datetime
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
-# URLs da planilha principal e da aba Executados
-url_dados = "https://docs.google.com/spreadsheets/d/1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxKXTZv2sR4OQ/export?format=csv"
-url_executados = "https://docs.google.com/spreadsheets/d/1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxKXTZv2sR4OQ/export?format=csv&gid=123456789"  # substitua pelo GID da aba Executados
+# Autenticação com Google Sheets
+def conectar_planilha():
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_name("credenciais.json", scope)
+    client = gspread.authorize(creds)
+    return client
+
+# Função para registrar subprocesso executado
+def registrar_executado(id_bloco, fornecedor, pag, valor):
+    try:
+        client = conectar_planilha()
+        planilha = client.open("Subprocessos Inteligentes")  # nome da planilha
+        aba = planilha.worksheet("Executados")  # nome da aba
+        nova_linha = [id_bloco, "Jefferson", datetime.now().strftime("%d/%m/%Y %H:%M"), fornecedor, pag, valor]
+        aba.append_row(nova_linha)
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar na aba Executados: {e}")
+        return False
 
 # Carregar dados principais
 @st.cache_data
 def carregar_planilha():
+    url_dados = "https://docs.google.com/spreadsheets/d/1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxKXTZv2sR4OQ/export?format=csv"
     df = pd.read_csv(url_dados)
     df.columns = df.columns.str.strip()
     return df
@@ -17,9 +36,11 @@ def carregar_planilha():
 @st.cache_data
 def carregar_executados():
     try:
-        df_exec = pd.read_csv(url_executados)
-        df_exec.columns = df_exec.columns.str.strip()
-        return set(df_exec["ID"].astype(str).tolist())
+        client = conectar_planilha()
+        planilha = client.open("Subprocessos Inteligentes")
+        aba = planilha.worksheet("Executados")
+        dados = aba.get_all_records()
+        return set(str(item["ID"]) for item in dados if "ID" in item)
     except:
         return set()
 
@@ -29,7 +50,7 @@ ids_executados = carregar_executados()
 st.title("📄 Subprocessos Inteligentes")
 st.write("Planilha carregada com sucesso!")
 
-# ✅ Filtro robusto: ignora cancelado e enviado ACI sem alterar os dados originais
+# Filtro robusto
 status_temp = df["STATUS"].astype(str).str.lower().str.strip()
 df_filtrado = df[~status_temp.str.contains("cancelado|enviado aci", na=False)]
 
@@ -53,7 +74,7 @@ agrupamentos_pagina = agrupamentos[inicio:fim]
 if "historico" not in st.session_state:
     st.session_state.historico = []
 
-# Subprocessos em execução (visível para todos enquanto o app estiver rodando)
+# Subprocessos em execução
 if "execucoes_globais" not in st.session_state:
     st.session_state.execucoes_globais = set()
 
@@ -64,18 +85,17 @@ def destacar_linhas_em_execucao(df):
         if id_linha in st.session_state.execucoes_globais:
             return ["background-color: #FFF3CD"] * len(row)
         elif id_linha in ids_executados:
-            return ["background-color: #E0E0E0"] * len(row)  # cinza para executados
+            return ["background-color: #E0E0E0"] * len(row)
         else:
             return [""] * len(row)
     return df.style.apply(cor_linha, axis=1)
 
-# Exibir sugestões da página atual
+# Exibir sugestões
 sugestoes_visiveis = 0
 for i, bloco in enumerate(agrupamentos_pagina):
     indice_global = inicio + i
     id_bloco = str(bloco["ID"].iloc[0])
 
-    # Pular se já foi executado
     if id_bloco in ids_executados:
         continue
 
@@ -99,18 +119,29 @@ for i, bloco in enumerate(agrupamentos_pagina):
 
     with col2:
         if st.button("✔ Marcar como executado", key=f"finalizar_{indice_global}"):
-            registro = {
-                "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                "fornecedor": bloco["FORNECEDOR"].iloc[0],
-                "pag": bloco["PAG"].iloc[0],
-                "ids": ", ".join(bloco["ID"].astype(str)),
-                "valor_total": bloco["VALOR"].sum()
-            }
-            st.session_state.historico.append(registro)
-            st.success("Subprocesso registrado como executado!")
-            st.info("⚠️ Para que esse registro seja visível para todos, ele precisa ser salvo na aba 'Executados'.")
+            fornecedor = bloco["FORNECEDOR"].iloc[0]
+            pag = bloco["PAG"].iloc[0]
+            valor = bloco["VALOR"].sum()
 
-# ✅ Navegação de página no final com clique único
+            sucesso = registrar_executado(id_bloco, fornecedor, pag, valor)
+            if sucesso:
+                st.success("Subprocesso registrado na aba Executados!")
+            else:
+                st.warning("Subprocesso marcado, mas não foi salvo na planilha.")
+
+            st.session_state.historico.append({
+                "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                "fornecedor": fornecedor,
+                "pag": pag,
+                "ids": id_bloco,
+                "valor_total": valor
+            })
+
+# Se não houver mais sugestões visíveis
+if sugestoes_visiveis == 0:
+    st.info("✅ Nenhuma sugestão restante nesta página.")
+
+# Navegação
 st.write(f"📄 Página {st.session_state.pagina_atual + 1} de {total_paginas}")
 col_nav1, col_nav2 = st.columns([1, 1])
 pagina_anterior = col_nav1.button("⬅ Página anterior")

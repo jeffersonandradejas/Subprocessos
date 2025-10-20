@@ -2,16 +2,29 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime
 
-# URL da planilha pública no formato CSV
-url = "https://docs.google.com/spreadsheets/d/1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxKXTZv2sR4OQ/export?format=csv"
+# URLs da planilha principal e da aba Executados
+url_dados = "https://docs.google.com/spreadsheets/d/1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxKXTZv2sR4OQ/export?format=csv"
+url_executados = "https://docs.google.com/spreadsheets/d/1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxKXTZv2sR4OQ/export?format=csv&gid=123456789"  # substitua pelo GID da aba Executados
 
+# Carregar dados principais
 @st.cache_data
 def carregar_planilha():
-    df = pd.read_csv(url)
+    df = pd.read_csv(url_dados)
     df.columns = df.columns.str.strip()
     return df
 
+# Carregar subprocessos já executados
+@st.cache_data
+def carregar_executados():
+    try:
+        df_exec = pd.read_csv(url_executados)
+        df_exec.columns = df_exec.columns.str.strip()
+        return set(df_exec["ID"].astype(str).tolist())
+    except:
+        return set()
+
 df = carregar_planilha()
+ids_executados = carregar_executados()
 
 st.title("📄 Subprocessos Inteligentes")
 st.write("Planilha carregada com sucesso!")
@@ -47,19 +60,28 @@ if "execucoes_globais" not in st.session_state:
 # Função para destacar linhas
 def destacar_linhas_em_execucao(df):
     def cor_linha(row):
-        if str(row["ID"]) in st.session_state.execucoes_globais:
+        id_linha = str(row["ID"])
+        if id_linha in st.session_state.execucoes_globais:
             return ["background-color: #FFF3CD"] * len(row)
+        elif id_linha in ids_executados:
+            return ["background-color: #E0E0E0"] * len(row)  # cinza para executados
         else:
             return [""] * len(row)
     return df.style.apply(cor_linha, axis=1)
 
-# Exibir sugestões
+# Exibir sugestões da página atual
+sugestoes_visiveis = 0
 for i, bloco in enumerate(agrupamentos_pagina):
     indice_global = inicio + i
+    id_bloco = str(bloco["ID"].iloc[0])
+
+    # Pular se já foi executado
+    if id_bloco in ids_executados:
+        continue
+
+    sugestoes_visiveis += 1
     st.subheader(f"Subprocesso sugerido {indice_global + 1}")
     st.dataframe(destacar_linhas_em_execucao(bloco))
-
-    id_bloco = str(bloco["ID"].iloc[0])
 
     col1, col2 = st.columns(2)
     with col1:
@@ -85,9 +107,8 @@ for i, bloco in enumerate(agrupamentos_pagina):
                 "valor_total": bloco["VALOR"].sum()
             }
             st.session_state.historico.append(registro)
-            st.success("Subprocesso registrado no histórico!")
-            if id_bloco in st.session_state.execucoes_globais:
-                st.session_state.execucoes_globais.remove(id_bloco)
+            st.success("Subprocesso registrado como executado!")
+            st.info("⚠️ Para que esse registro seja visível para todos, ele precisa ser salvo na aba 'Executados'.")
 
 # ✅ Navegação de página no final com clique único
 st.write(f"📄 Página {st.session_state.pagina_atual + 1} de {total_paginas}")

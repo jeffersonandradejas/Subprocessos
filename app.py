@@ -36,20 +36,11 @@ inicio = st.session_state.pagina_atual * sugestoes_por_pagina
 fim = inicio + sugestoes_por_pagina
 agrupamentos_pagina = agrupamentos[inicio:fim]
 
-st.write(f"📄 Página {st.session_state.pagina_atual + 1} de {total_paginas}")
-col_nav1, col_nav2 = st.columns([1, 1])
-with col_nav1:
-    if st.button("⬅ Página anterior") and st.session_state.pagina_atual > 0:
-        st.session_state.pagina_atual -= 1
-with col_nav2:
-    if st.button("➡ Próxima página") and st.session_state.pagina_atual < total_paginas - 1:
-        st.session_state.pagina_atual += 1
-
 # Histórico local
 if "historico" not in st.session_state:
     st.session_state.historico = []
 
-# Subprocessos em execução (visível para todos enquanto o app roda)
+# Subprocessos em execução (visível para todos enquanto o app estiver rodando)
 if "execucoes_globais" not in st.session_state:
     st.session_state.execucoes_globais = set()
 
@@ -72,14 +63,17 @@ for i, bloco in enumerate(agrupamentos_pagina):
 
     col1, col2 = st.columns(2)
     with col1:
-        if id_bloco not in st.session_state.execucoes_globais:
-            if st.button("❌ Marcar como em execução", key=f"executar_{indice_global}"):
-                st.session_state.execucoes_globais.add(id_bloco)
-                st.warning("Subprocesso marcado como em execução.")
-        else:
-            if st.button("🔓 Liberar execução", key=f"liberar_{indice_global}"):
+        botao_execucao = st.button(
+            "🔓 Liberar execução" if id_bloco in st.session_state.execucoes_globais else "❌ Marcar como em execução",
+            key=f"execucao_{indice_global}"
+        )
+        if botao_execucao:
+            if id_bloco in st.session_state.execucoes_globais:
                 st.session_state.execucoes_globais.remove(id_bloco)
                 st.info("Subprocesso liberado.")
+            else:
+                st.session_state.execucoes_globais.add(id_bloco)
+                st.warning("Subprocesso marcado como em execução.")
 
     with col2:
         if st.button("✅ Marcar como executado", key=f"finalizar_{indice_global}"):
@@ -94,6 +88,16 @@ for i, bloco in enumerate(agrupamentos_pagina):
             st.success("Subprocesso registrado no histórico!")
             if id_bloco in st.session_state.execucoes_globais:
                 st.session_state.execucoes_globais.remove(id_bloco)
+
+# Navegação de página (agora no final)
+st.write(f"📄 Página {st.session_state.pagina_atual + 1} de {total_paginas}")
+col_nav1, col_nav2 = st.columns([1, 1])
+with col_nav1:
+    if st.button("⬅ Página anterior") and st.session_state.pagina_atual > 0:
+        st.session_state.pagina_atual -= 1
+with col_nav2:
+    if st.button("➡ Próxima página") and st.session_state.pagina_atual < total_paginas - 1:
+        st.session_state.pagina_atual += 1
 
 # Histórico lateral
 st.sidebar.title("📋 Histórico de Subprocessos")

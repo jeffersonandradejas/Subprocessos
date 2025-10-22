@@ -3,6 +3,7 @@ import streamlit as st
 from datetime import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import traceback
 
 # Autenticação com Google Sheets
 def conectar_planilha():
@@ -25,34 +26,10 @@ def atualizar_status_global(id_bloco, status):
             aba.update_cell(linha, 2, status)
         else:
             aba.append_row([id_bloco, status])
-    except Exception as e:
-        st.error(f"Erro ao atualizar status global: {e}")
-        st.text(str(e))
-
-# Cria a aba 'Executados' se não existir
-def garantir_aba_executados(planilha):
-    try:
-        planilha.worksheet("Executados")
-    except gspread.exceptions.WorksheetNotFound:
-        planilha.add_worksheet(title="Executados", rows="1000", cols="10")
-        aba = planilha.worksheet("Executados")
-        aba.append_row(["ID", "Responsável", "Data", "Fornecedor", "PAG", "Valor"])  # Cabeçalhos
-
-# Registra subprocesso como executado
-def registrar_executado(id_bloco, fornecedor, pag, valor):
-    try:
-        client = conectar_planilha()
-        planilha = client.open("Subprocessos Inteligentes")
-        garantir_aba_executados(planilha)
-        aba = planilha.worksheet("Executados")
-
-        nova_linha = [id_bloco, "Jefferson", datetime.now().strftime("%d/%m/%Y %H:%M"), fornecedor, pag, valor]
-        aba.append_row(nova_linha)
-        return True
-    except Exception as e:
-        st.error("Erro ao salvar na aba Executados.")
-        st.text(str(e))  # Mostra o erro técnico
-        return False
+    except Exception:
+        erro_detalhado = traceback.format_exc()
+        st.error("❌ Erro ao atualizar status global. Veja detalhes abaixo:")
+        st.code(erro_detalhado, language="python")
 
 # Carrega status global como dicionário
 @st.cache_data(ttl=30)
@@ -66,6 +43,21 @@ def carregar_status_global():
     except:
         return {}
 
+# Registra subprocesso como executado
+def registrar_executado(id_bloco, fornecedor, pag, valor):
+    try:
+        client = conectar_planilha()
+        planilha = client.open("Subprocessos Inteligentes")
+        aba = planilha.worksheet("Executados")
+        nova_linha = [id_bloco, "Jefferson", datetime.now().strftime("%d/%m/%Y %H:%M"), fornecedor, pag, valor]
+        aba.append_row(nova_linha)
+        return True
+    except Exception:
+        erro_detalhado = traceback.format_exc()
+        st.error("❌ Erro ao salvar na aba Executados. Veja detalhes abaixo:")
+        st.code(erro_detalhado, language="python")
+        return False
+
 # Carrega planilha principal
 @st.cache_data
 def carregar_planilha():
@@ -74,22 +66,7 @@ def carregar_planilha():
     df.columns = df.columns.str.strip()
     return df
 
-# Carrega subprocessos já executados
-@st.cache_data
-def carregar_executados():
-    try:
-        client = conectar_planilha()
-        planilha = client.open("Subprocessos Inteligentes")
-        garantir_aba_executados(planilha)
-        aba = planilha.worksheet("Executados")
-        dados = aba.get_all_records()
-        return set(str(item["ID"]) for item in dados if "ID" in item)
-    except:
-        return set()
-
-# INÍCIO DO APP STREAMLIT
 df = carregar_planilha()
-ids_executados = carregar_executados()
 status_global = carregar_status_global()
 
 st.title("📄 Subprocessos Inteligentes")
@@ -119,7 +96,7 @@ agrupamentos_pagina = agrupamentos[inicio:fim]
 if "historico" not in st.session_state:
     st.session_state.historico = []
 
-# Destacar linhas conforme status global
+# Função para destacar linhas com base no status global
 def destacar_linhas_em_execucao(df):
     def cor_linha(row):
         id_linha = str(row["ID"])
@@ -165,8 +142,6 @@ for i, bloco in enumerate(agrupamentos_pagina):
             if sucesso:
                 atualizar_status_global(id_bloco, "executado")
                 st.success("Subprocesso registrado na aba Executados!")
-            else:
-                st.warning("Subprocesso marcado, mas não foi salvo na planilha.")
 
             st.session_state.historico.append({
                 "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
@@ -177,6 +152,7 @@ for i, bloco in enumerate(agrupamentos_pagina):
             })
             st.rerun()
 
+# Se não houver mais sugestões visíveis
 if sugestoes_visiveis == 0:
     st.info("✅ Nenhuma sugestão restante nesta página.")
 

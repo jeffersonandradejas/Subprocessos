@@ -27,6 +27,32 @@ def atualizar_status_global(id_bloco, status):
             aba.append_row([id_bloco, status])
     except Exception as e:
         st.error(f"Erro ao atualizar status global: {e}")
+        st.text(str(e))
+
+# Cria a aba 'Executados' se não existir
+def garantir_aba_executados(planilha):
+    try:
+        planilha.worksheet("Executados")
+    except gspread.exceptions.WorksheetNotFound:
+        planilha.add_worksheet(title="Executados", rows="1000", cols="10")
+        aba = planilha.worksheet("Executados")
+        aba.append_row(["ID", "Responsável", "Data", "Fornecedor", "PAG", "Valor"])  # Cabeçalhos
+
+# Registra subprocesso como executado
+def registrar_executado(id_bloco, fornecedor, pag, valor):
+    try:
+        client = conectar_planilha()
+        planilha = client.open("Subprocessos Inteligentes")
+        garantir_aba_executados(planilha)
+        aba = planilha.worksheet("Executados")
+
+        nova_linha = [id_bloco, "Jefferson", datetime.now().strftime("%d/%m/%Y %H:%M"), fornecedor, pag, valor]
+        aba.append_row(nova_linha)
+        return True
+    except Exception as e:
+        st.error("Erro ao salvar na aba Executados.")
+        st.text(str(e))  # Mostra o erro técnico
+        return False
 
 # Carrega status global como dicionário
 @st.cache_data(ttl=30)
@@ -39,19 +65,6 @@ def carregar_status_global():
         return {str(item["ID"]): item["STATUS"] for item in dados}
     except:
         return {}
-
-# Registra subprocesso como executado
-def registrar_executado(id_bloco, fornecedor, pag, valor):
-    try:
-        client = conectar_planilha()
-        planilha = client.open("Subprocessos Inteligentes")
-        aba = planilha.worksheet("Executados")
-        nova_linha = [id_bloco, "Jefferson", datetime.now().strftime("%d/%m/%Y %H:%M"), fornecedor, pag, valor]
-        aba.append_row(nova_linha)
-        return True
-    except Exception as e:
-        st.error(f"Erro ao salvar na aba Executados: {e}")
-        return False
 
 # Carrega planilha principal
 @st.cache_data
@@ -67,12 +80,14 @@ def carregar_executados():
     try:
         client = conectar_planilha()
         planilha = client.open("Subprocessos Inteligentes")
+        garantir_aba_executados(planilha)
         aba = planilha.worksheet("Executados")
         dados = aba.get_all_records()
         return set(str(item["ID"]) for item in dados if "ID" in item)
     except:
         return set()
 
+# INÍCIO DO APP STREAMLIT
 df = carregar_planilha()
 ids_executados = carregar_executados()
 status_global = carregar_status_global()
@@ -104,7 +119,7 @@ agrupamentos_pagina = agrupamentos[inicio:fim]
 if "historico" not in st.session_state:
     st.session_state.historico = []
 
-# Função para destacar linhas com base no status global
+# Destacar linhas conforme status global
 def destacar_linhas_em_execucao(df):
     def cor_linha(row):
         id_linha = str(row["ID"])
@@ -162,7 +177,6 @@ for i, bloco in enumerate(agrupamentos_pagina):
             })
             st.rerun()
 
-# Se não houver mais sugestões visíveis
 if sugestoes_visiveis == 0:
     st.info("✅ Nenhuma sugestão restante nesta página.")
 

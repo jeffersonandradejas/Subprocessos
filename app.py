@@ -11,12 +11,41 @@ def conectar_planilha():
     client = gspread.authorize(creds)
     return client
 
-# Função para registrar subprocesso executado
+# Atualiza ou insere status global
+def atualizar_status_global(id_bloco, status):
+    try:
+        client = conectar_planilha()
+        planilha = client.open("Subprocessos Inteligentes")
+        aba = planilha.worksheet("Status_Global")
+        dados = aba.get_all_records()
+        ids_existentes = [str(item["ID"]) for item in dados]
+
+        if id_bloco in ids_existentes:
+            linha = ids_existentes.index(id_bloco) + 2
+            aba.update_cell(linha, 2, status)
+        else:
+            aba.append_row([id_bloco, status])
+    except Exception as e:
+        st.error(f"Erro ao atualizar status global: {e}")
+
+# Carrega status global como dicionário
+@st.cache_data(ttl=30)
+def carregar_status_global():
+    try:
+        client = conectar_planilha()
+        planilha = client.open("Subprocessos Inteligentes")
+        aba = planilha.worksheet("Status_Global")
+        dados = aba.get_all_records()
+        return {str(item["ID"]): item["STATUS"] for item in dados}
+    except:
+        return {}
+
+# Registra subprocesso como executado
 def registrar_executado(id_bloco, fornecedor, pag, valor):
     try:
         client = conectar_planilha()
-        planilha = client.open("Subprocessos Inteligentes")  # nome da planilha
-        aba = planilha.worksheet("Executados")  # nome da aba
+        planilha = client.open("Subprocessos Inteligentes")
+        aba = planilha.worksheet("Executados")
         nova_linha = [id_bloco, "Jefferson", datetime.now().strftime("%d/%m/%Y %H:%M"), fornecedor, pag, valor]
         aba.append_row(nova_linha)
         return True
@@ -24,7 +53,7 @@ def registrar_executado(id_bloco, fornecedor, pag, valor):
         st.error(f"Erro ao salvar na aba Executados: {e}")
         return False
 
-# Carregar dados principais
+# Carrega planilha principal
 @st.cache_data
 def carregar_planilha():
     url_dados = "https://docs.google.com/spreadsheets/d/1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxKXTZv2sR4OQ/export?format=csv"
@@ -32,7 +61,7 @@ def carregar_planilha():
     df.columns = df.columns.str.strip()
     return df
 
-# Carregar subprocessos já executados
+# Carrega subprocessos já executados
 @st.cache_data
 def carregar_executados():
     try:
@@ -46,6 +75,7 @@ def carregar_executados():
 
 df = carregar_planilha()
 ids_executados = carregar_executados()
+status_global = carregar_status_global()
 
 st.title("📄 Subprocessos Inteligentes")
 st.write("Planilha carregada com sucesso!")
@@ -54,7 +84,7 @@ st.write("Planilha carregada com sucesso!")
 status_temp = df["STATUS"].astype(str).str.lower().str.strip()
 df_filtrado = df[~status_temp.str.contains("cancelado|enviado aci", na=False)]
 
-# Agrupar por FORNECEDOR e PAG
+# Agrupamento por fornecedor e PAG
 agrupamentos = []
 for _, grupo in df_filtrado.groupby(["FORNECEDOR", "PAG"]):
     blocos = [grupo.iloc[i:i+9] for i in range(0, len(grupo), 9)]
@@ -74,17 +104,14 @@ agrupamentos_pagina = agrupamentos[inicio:fim]
 if "historico" not in st.session_state:
     st.session_state.historico = []
 
-# Subprocessos em execução
-if "execucoes_globais" not in st.session_state:
-    st.session_state.execucoes_globais = set()
-
-# Função para destacar linhas
+# Função para destacar linhas com base no status global
 def destacar_linhas_em_execucao(df):
     def cor_linha(row):
         id_linha = str(row["ID"])
-        if id_linha in st.session_state.execucoes_globais:
+        status = status_global.get(id_linha, "")
+        if status == "em execução":
             return ["background-color: #FFF3CD"] * len(row)
-        elif id_linha in ids_executados:
+        elif status == "executado":
             return ["background-color: #E0E0E0"] * len(row)
         else:
             return [""] * len(row)
@@ -96,7 +123,7 @@ for i, bloco in enumerate(agrupamentos_pagina):
     indice_global = inicio + i
     id_bloco = str(bloco["ID"].iloc[0])
 
-    if id_bloco in ids_executados:
+    if status_global.get(id_bloco) == "executado":
         continue
 
     sugestoes_visiveis += 1
@@ -105,17 +132,13 @@ for i, bloco in enumerate(agrupamentos_pagina):
 
     col1, col2 = st.columns(2)
     with col1:
-        botao_execucao = st.button(
-            "🔓 Liberar execução" if id_bloco in st.session_state.execucoes_globais else "❌ Marcar como em execução",
-            key=f"execucao_{indice_global}"
-        )
+        status_atual = status_global.get(id_bloco)
+        texto_botao = "🔓 Liberar execução" if status_atual == "em execução" else "❌ Marcar como em execução"
+        botao_execucao = st.button(texto_botao, key=f"execucao_{indice_global}")
         if botao_execucao:
-            if id_bloco in st.session_state.execucoes_globais:
-                st.session_state.execucoes_globais.remove(id_bloco)
-                st.info("Subprocesso liberado.")
-            else:
-                st.session_state.execucoes_globais.add(id_bloco)
-                st.warning("Subprocesso marcado como em execução.")
+            novo_status = "" if status_atual == "em execução" else "em execução"
+            atualizar_status_global(id_bloco, novo_status)
+            st.rerun()
 
     with col2:
         if st.button("✔ Marcar como executado", key=f"finalizar_{indice_global}"):
@@ -125,6 +148,7 @@ for i, bloco in enumerate(agrupamentos_pagina):
 
             sucesso = registrar_executado(id_bloco, fornecedor, pag, valor)
             if sucesso:
+                atualizar_status_global(id_bloco, "executado")
                 st.success("Subprocesso registrado na aba Executados!")
             else:
                 st.warning("Subprocesso marcado, mas não foi salvo na planilha.")
@@ -136,6 +160,7 @@ for i, bloco in enumerate(agrupamentos_pagina):
                 "ids": id_bloco,
                 "valor_total": valor
             })
+            st.rerun()
 
 # Se não houver mais sugestões visíveis
 if sugestoes_visiveis == 0:
@@ -149,9 +174,11 @@ pagina_proxima = col_nav2.button("➡ Próxima página")
 
 if pagina_anterior and st.session_state.pagina_atual > 0:
     st.session_state.pagina_atual -= 1
+    st.rerun()
 
 if pagina_proxima and st.session_state.pagina_atual < total_paginas - 1:
     st.session_state.pagina_atual += 1
+    st.rerun()
 
 # Histórico lateral
 st.sidebar.title("📋 Histórico de Subprocessos")

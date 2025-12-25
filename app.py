@@ -20,15 +20,16 @@ def salvar_dados(dados):
     with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
         json.dump(dados, f, ensure_ascii=False, indent=2)
 
-def carregar_dados():
-    dados_iniciais = {
-        "usuarios": {
-            "admin": {"senha": "123", "tipo": "admin"}
-        },
-        "dados_planilha": [],
-        "status_blocos": {},
-        "historico": []
-    }
+{
+  "usuarios": {
+    "admin": {"senha": "123", "tipo": "admin"},
+    "sabrina": {"senha": "ladybinacs", "tipo": "usuario"}
+  },
+  "status_blocos": {},
+  "historico": [],
+  "pagina_atual": 0
+}
+
 
     if not os.path.exists(ARQUIVO_DADOS):
         salvar_dados(dados_iniciais)

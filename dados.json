@@ -1,9 +1,10 @@
 {
   "usuarios": {
-    "admin": {
-      "admin": true,
-      "blocos": {},
-      "historico": []
-    }
-  }
+    "admin": {"senha": "123", "tipo": "admin"},
+    "sabrina": {"senha": "ladybinacs", "tipo": "usuario"}
+  },
+  "status_blocos": {},
+  "historico": [],
+  "pagina_atual": 0,
+  "dados_planilha": []
 }

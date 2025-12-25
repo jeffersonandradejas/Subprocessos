@@ -14,22 +14,23 @@ ITENS_POR_PAGINA = 8
 ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
 
 # ===============================
-# PERSISTÊNCIA (CORRIGIDA)
+# FUNÇÕES DE PERSISTÊNCIA
 # ===============================
 def salvar_dados(dados):
     with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
         json.dump(dados, f, ensure_ascii=False, indent=2)
 
-{
-  "usuarios": {
-    "admin": {"senha": "123", "tipo": "admin"},
-    "sabrina": {"senha": "ladybinacs", "tipo": "usuario"}
-  },
-  "status_blocos": {},
-  "historico": [],
-  "pagina_atual": 0
-}
-
+def carregar_dados():
+    dados_iniciais = {
+        "usuarios": {
+            "admin": {"senha": "123", "tipo": "admin"},
+            "sabrina": {"senha": "ladybinacs", "tipo": "usuario"}
+        },
+        "status_blocos": {},
+        "historico": [],
+        "pagina_atual": 0,
+        "dados_planilha": []
+    }
 
     if not os.path.exists(ARQUIVO_DADOS):
         salvar_dados(dados_iniciais)
@@ -76,7 +77,6 @@ if not st.session_state.usuario_logado:
 else:
     usuario = st.session_state.usuario_logado
     tipo_usuario = dados["usuarios"][usuario]["tipo"]
-
     st.sidebar.success(f"Olá {usuario}!")
 
     if st.sidebar.button("🚪 Sair"):
@@ -117,7 +117,7 @@ if tipo_usuario == "admin":
 # ===============================
 # SE NÃO HOUVER DADOS
 # ===============================
-if not dados["dados_planilha"]:
+if not dados.get("dados_planilha"):
     st.warning("Nenhum CSV importado ainda.")
     st.stop()
 

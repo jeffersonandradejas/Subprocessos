@@ -14,9 +14,15 @@ st.title("📌 Subprocessos Inteligentes Offline/Online")
 # Pasta de dados e usuários
 # ---------------------------
 if not os.path.exists("dados.json"):
+    # Cria arquivo inicial se não existir
     with open("dados.json", "w") as f:
-        json.dump({"usuarios": {"admin": {"senha": "", "tipo": "admin"}}, "subprocessos": []}, f, indent=4)
+        json.dump({
+            "usuarios": {"admin": {"senha": "", "tipo": "admin"}},
+            "subprocessos": [],
+            "historico": []
+        }, f, indent=4)
 
+# Carregar dados do JSON
 with open("dados.json", "r") as f:
     dados = json.load(f)
 
@@ -32,6 +38,7 @@ if st.session_state.usuario is None:
     senha = st.text_input("Senha", type="password")
     if st.button("Entrar"):
         if nome in dados["usuarios"]:
+            # Para o primeiro admin, senha pode ficar vazia
             st.session_state.usuario = nome
             st.success(f"Olá {nome}!")
         else:
@@ -58,18 +65,15 @@ if st.session_state.usuario == "admin":
 # ---------------------------
 st.subheader("📥 Importar dados da planilha")
 
-# CSV uploader
 arquivo = st.file_uploader("Escolha um arquivo CSV", type="csv")
 if arquivo is not None:
     try:
         df = pd.read_csv(arquivo)
         st.session_state.df = df
         st.success("✅ CSV importado com sucesso!")
-        st.dataframe(df, use_container_width=True)
     except Exception as e:
         st.error(f"❌ Erro ao processar o CSV: {e}")
 
-# Área para colar dados (opcional)
 dados_colados = st.text_area("Ou cole os dados (separados por tabulação)", height=300)
 if dados_colados:
     try:
@@ -77,7 +81,6 @@ if dados_colados:
         df = pd.read_csv(io.StringIO(dados_colados), sep="\t", engine="python")
         st.session_state.df = df
         st.success("✅ Dados colados com sucesso!")
-        st.dataframe(df, use_container_width=True)
     except Exception as e:
         st.error(f"❌ Erro ao processar os dados colados: {e}")
 
@@ -87,9 +90,19 @@ if dados_colados:
 if "df" in st.session_state:
     df = st.session_state.df
 
-    # Histórico local
+    # ---------------------------
+    # Filtrar apenas ASSINAR OD e ASSINAR CH
+    # ---------------------------
+    if "STATUS" in df.columns:
+        df = df[df["STATUS"].isin(["ASSINAR OD", "ASSINAR CH"])]
+    else:
+        st.warning("Coluna STATUS não encontrada no CSV.")
+
+    # ---------------------------
+    # Histórico persistente
+    # ---------------------------
     if "historico" not in st.session_state:
-        st.session_state.historico = []
+        st.session_state.historico = dados.get("historico", [])
 
     # Mostrar histórico
     st.sidebar.title("🗓 Histórico de Subprocessos")
@@ -99,7 +112,9 @@ if "df" in st.session_state:
     else:
         st.sidebar.info("Nenhum subprocesso registrado ainda.")
 
+    # ---------------------------
     # Paginação simples
+    # ---------------------------
     blocos = [df.iloc[i:i+5] for i in range(0, len(df), 5)]
     if "pagina_atual" not in st.session_state:
         st.session_state.pagina_atual = 0
@@ -108,24 +123,34 @@ if "df" in st.session_state:
     pagina = st.session_state.pagina_atual
     st.write(f"📄 Blocos Página {pagina + 1} / {total_paginas}")
 
-    bloco = blocos[pagina]
-    st.dataframe(bloco, use_container_width=True)
+    if total_paginas > 0:
+        bloco = blocos[pagina]
+        st.dataframe(bloco, use_container_width=True)
 
-    # Marcar como executado
-    if st.button("✔ Marcar este bloco como executado"):
-        ids_bloco = bloco["ID"].tolist() if "ID" in bloco.columns else list(range(len(bloco)))
-        valor_total = bloco["VALOR"].sum() if "VALOR" in bloco.columns else 0
-        st.session_state.historico.append({
-            "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
-            "usuario": st.session_state.usuario,
-            "ids": ids_bloco,
-            "valor_total": valor_total
-        })
-        st.success("✅ Bloco registrado no histórico!")
+        # Marcar como executado
+        if st.button("✔ Marcar este bloco como executado"):
+            ids_bloco = bloco["ID"].tolist() if "ID" in bloco.columns else list(range(len(bloco)))
+            valor_total = bloco["VALOR"].sum() if "VALOR" in bloco.columns else 0
+            novo_registro = {
+                "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                "usuario": st.session_state.usuario,
+                "ids": ids_bloco,
+                "valor_total": valor_total
+            }
+            st.session_state.historico.append(novo_registro)
 
-    # Navegação
-    col1, col2 = st.columns(2)
-    if col1.button("⬅ Página anterior") and st.session_state.pagina_atual > 0:
-        st.session_state.pagina_atual -= 1
-    if col2.button("➡ Próxima página") and st.session_state.pagina_atual < total_paginas - 1:
-        st.session_state.pagina_atual += 1
+            # Salvar no JSON
+            dados["historico"] = st.session_state.historico
+            with open("dados.json", "w") as f:
+                json.dump(dados, f, indent=4)
+
+            st.success("✅ Bloco registrado no histórico!")
+
+        # Navegação
+        col1, col2 = st.columns(2)
+        if col1.button("⬅ Página anterior") and st.session_state.pagina_atual > 0:
+            st.session_state.pagina_atual -= 1
+        if col2.button("➡ Próxima página") and st.session_state.pagina_atual < total_paginas - 1:
+            st.session_state.pagina_atual += 1
+    else:
+        st.info("✅ Nenhum subprocesso para ASSINAR OD ou ASSINAR CH encontrado.")

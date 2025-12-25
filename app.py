@@ -23,7 +23,8 @@ def salvar_dados(dados):
 def carregar_dados():
     dados_iniciais = {
         "usuarios": {
-            "admin": {"senha": "123", "tipo": "admin"}
+            "admin": {"senha": "123", "tipo": "admin"},
+            "sabrina": {"senha": "ladybinacs", "tipo": "usuario"}
         },
         "dados_planilha": [],
         "status_blocos": {},
@@ -36,13 +37,22 @@ def carregar_dados():
         with open(ARQUIVO_DADOS, "r", encoding="utf-8") as f:
             dados_existentes = json.load(f)
 
-        # 🔥 GARANTE ADMIN SEMPRE CORRETO
-        if (
-            "usuarios" not in dados_existentes
-            or "admin" not in dados_existentes["usuarios"]
-            or dados_existentes["usuarios"]["admin"].get("senha") != "123"
-        ):
-            salvar_dados(dados_iniciais)
+        # 🔥 GARANTE ADMIN E SABRINA SEMPRE CORRETOS
+        if "usuarios" not in dados_existentes:
+            dados_existentes["usuarios"] = {}
+        if "admin" not in dados_existentes["usuarios"]:
+            dados_existentes["usuarios"]["admin"] = {"senha": "123", "tipo": "admin"}
+        else:
+            dados_existentes["usuarios"]["admin"]["senha"] = "123"
+            dados_existentes["usuarios"]["admin"]["tipo"] = "admin"
+
+        if "sabrina" not in dados_existentes["usuarios"]:
+            dados_existentes["usuarios"]["sabrina"] = {"senha": "ladybinacs", "tipo": "usuario"}
+        else:
+            dados_existentes["usuarios"]["sabrina"]["senha"] = "ladybinacs"
+            dados_existentes["usuarios"]["sabrina"]["tipo"] = "usuario"
+
+        salvar_dados(dados_existentes)
 
     with open(ARQUIVO_DADOS, "r", encoding="utf-8") as f:
         return json.load(f)

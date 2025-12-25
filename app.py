@@ -24,7 +24,7 @@ def carregar_dados():
     dados_iniciais = {
         "usuarios": {
             "admin": {"senha": "123", "tipo": "admin"},
-            "sabrina": {"senha": "ladybinacs", "tipo": "admin"}
+            "sabrina": {"senha": "ladybinacs", "tipo": "user"}
         },
         "dados_planilha": [],
         "status_blocos": {},

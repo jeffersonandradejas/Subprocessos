@@ -15,7 +15,7 @@ st.title("📌 Subprocessos Inteligentes Offline/Online")
 # ---------------------------
 if not os.path.exists("dados.json"):
     with open("dados.json", "w") as f:
-        json.dump({"usuarios": {"admin": {"senha": "", "tipo": "admin"}}, "subprocessos": []}, f)
+        json.dump({"usuarios": {"admin": {"senha": "", "tipo": "admin"}}, "subprocessos": []}, f, indent=4)
 
 with open("dados.json", "r") as f:
     dados = json.load(f)
@@ -58,7 +58,7 @@ if st.session_state.usuario == "admin":
 # ---------------------------
 st.subheader("📥 Importar dados da planilha")
 
-# Importar CSV
+# CSV uploader
 arquivo = st.file_uploader("Escolha um arquivo CSV", type="csv")
 if arquivo is not None:
     try:
@@ -69,11 +69,12 @@ if arquivo is not None:
     except Exception as e:
         st.error(f"❌ Erro ao processar o CSV: {e}")
 
-# Colar dados
+# Área para colar dados (opcional)
 dados_colados = st.text_area("Ou cole os dados (separados por tabulação)", height=300)
 if dados_colados:
     try:
-        df = pd.read_csv(pd.io.common.StringIO(dados_colados), sep="\t", engine="python")
+        import io
+        df = pd.read_csv(io.StringIO(dados_colados), sep="\t", engine="python")
         st.session_state.df = df
         st.success("✅ Dados colados com sucesso!")
         st.dataframe(df, use_container_width=True)
@@ -81,7 +82,7 @@ if dados_colados:
         st.error(f"❌ Erro ao processar os dados colados: {e}")
 
 # ---------------------------
-# Processamento dos subprocessos
+# Só processa se CSV ou dados colados existirem
 # ---------------------------
 if "df" in st.session_state:
     df = st.session_state.df
@@ -104,20 +105,21 @@ if "df" in st.session_state:
         st.session_state.pagina_atual = 0
 
     total_paginas = len(blocos)
-    inicio = st.session_state.pagina_atual
-    st.write(f"📄 Blocos Página {inicio + 1} / {total_paginas}")
+    pagina = st.session_state.pagina_atual
+    st.write(f"📄 Blocos Página {pagina + 1} / {total_paginas}")
 
-    bloco = blocos[inicio]
+    bloco = blocos[pagina]
     st.dataframe(bloco, use_container_width=True)
 
     # Marcar como executado
     if st.button("✔ Marcar este bloco como executado"):
         ids_bloco = bloco["ID"].tolist() if "ID" in bloco.columns else list(range(len(bloco)))
+        valor_total = bloco["VALOR"].sum() if "VALOR" in bloco.columns else 0
         st.session_state.historico.append({
             "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "usuario": st.session_state.usuario,
             "ids": ids_bloco,
-            "valor_total": bloco["VALOR"].sum() if "VALOR" in bloco.columns else 0
+            "valor_total": valor_total
         })
         st.success("✅ Bloco registrado no histórico!")
 

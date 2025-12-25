@@ -1,150 +1,140 @@
 import streamlit as st
 import pandas as pd
 import json
-import os
 from datetime import datetime
+import os
 
-# --- Função para carregar dados persistentes ---
+# ------------------ Funções de Persistência ------------------ #
+ARQUIVO_DADOS = "dados.json"
+
 def carregar_dados():
-    dados_iniciais = {
-        "usuarios": {
-            "admin": {"senha": "123", "tipo": "admin"},
-            "sabrina": {"senha": "ladybinacs", "tipo": "usuario"}
-        },
-        "dados_planilha": [],
-        "status_blocos": {},
-        "historico": []
-    }
-
-    if not os.path.exists("dados.json"):
-        with open("dados.json", "w", encoding="utf-8") as f:
-            json.dump(dados_iniciais, f, ensure_ascii=False, indent=2)
-
-    with open("dados.json", "r", encoding="utf-8") as f:
-        return json.load(f)
-
-# --- Função para salvar dados ---
-def salvar_dados(dados):
-    with open("dados.json", "w", encoding="utf-8") as f:
-        json.dump(dados, f, ensure_ascii=False, indent=2)
-
-# --- Inicialização ---
-st.set_page_config(page_title="Subprocessos Inteligentes", layout="wide")
-
-if "dados" not in st.session_state:
-    st.session_state.dados = carregar_dados()
-
-if "usuario_logado" not in st.session_state:
-    st.session_state.usuario_logado = None
-
-if "pagina_atual" not in st.session_state:
-    st.session_state.pagina_atual = 1
-
-# --- Tela de login ---
-if st.session_state.usuario_logado is None:
-    st.title("🔒 Login")
-    usuario = st.text_input("Nome do usuário")
-    senha = st.text_input("Senha", type="password")
-    if st.button("Entrar"):
-        dados = st.session_state.dados
-        if usuario in dados["usuarios"]:
-            if dados["usuarios"][usuario]["senha"] == senha:
-                st.session_state.usuario_logado = usuario
-                st.success(f"Olá {usuario}!")
-            else:
-                st.error("Senha incorreta")
-        else:
-            st.error("Usuário não encontrado")
-    st.stop()
-
-# --- Tela principal ---
-st.sidebar.title(f"👤 Usuário: {st.session_state.usuario_logado}")
-st.sidebar.button("Sair e salvar", on_click=lambda: salvar_dados(st.session_state.dados))
-
-st.title("📌 Subprocessos Inteligentes Offline/Online")
-
-# --- Upload CSV ---
-arquivo_csv = st.file_uploader("📥 Carregar planilha CSV", type=["csv"])
-if arquivo_csv:
-    df = pd.read_csv(arquivo_csv)
-    df.columns = df.columns.str.strip()
-    # Filtra apenas ASSINAR OD e ASSINAR CH
-    df = df[df["STATUS"].isin(["ASSINAR OD", "ASSINAR CH"])]
-    st.session_state.dados["dados_planilha"] = df.to_dict(orient="records")
-    salvar_dados(st.session_state.dados)
-else:
-    # Se já temos dados carregados, usa eles
-    if st.session_state.dados["dados_planilha"]:
-        df = pd.DataFrame(st.session_state.dados["dados_planilha"])
+    if os.path.exists(ARQUIVO_DADOS):
+        with open(ARQUIVO_DADOS, "r", encoding="utf-8") as f:
+            return json.load(f)
     else:
-        st.info("📄 Carregue uma planilha CSV para começar")
-        st.stop()
+        # Dados iniciais com usuários padrão
+        dados_iniciais = {
+            "usuarios": {
+                "admin": {"senha": "123", "tipo": "admin"},
+                "sabrina": {"senha": "ladybinacs", "tipo": "usuario"}
+            },
+            "status_blocos": {},
+            "historico": [],
+            "pagina_atual": 0
+        }
+        salvar_dados(dados_iniciais)
+        return dados_iniciais
 
-# --- Agrupamento por fornecedor ou PAG ---
-blocos = []
-for _, grupo in df.groupby(["FORNECEDOR", "PAG"]):
-    blocos.extend([grupo.iloc[i:i+9] for i in range(0, len(grupo), 9)])
+def salvar_dados(dados):
+    with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
+        json.dump(dados, f, indent=4, ensure_ascii=False)
 
-total_paginas = len(blocos)
-pagina_atual = st.session_state.pagina_atual
+# ------------------ Funções Auxiliares ------------------ #
+def filtrar_blocos(df):
+    return df[df["STATUS"].isin(["ASSINAR OD", "ASSINAR CH"])]
 
-# --- Função para renderizar cores por status ---
-def cor_linha(row):
-    bloco_id = str(row.name)
-    status = st.session_state.dados["status_blocos"].get(bloco_id, "")
-    if status == "executado":
-        return ["background-color: #E0E0E0"] * len(row)
-    elif status == "em execução":
+def destacar_linhas(row):
+    status = dados["status_blocos"].get(str(row["ID"]), "")
+    if status == "em execução":
         return ["background-color: #FFF3CD"] * len(row)
+    elif status == "executado":
+        return ["background-color: #E0E0E0"] * len(row)
     else:
         return [""] * len(row)
 
-# --- Paginação numerada ---
-st.write("📄 Páginas:")
-col_pag = st.columns(total_paginas)
-for i, col in enumerate(col_pag, start=1):
-    status_pagina = all(
-        st.session_state.dados["status_blocos"].get(str(blocos[i-1].index[0]), "") == "executado"
-        for idx in range(len(blocos[i-1]))
-    )
-    cor_botao = "green" if status_pagina else None
-    if col.button(f"{i}", key=f"pagina_{i}", help="Clique para ir para a página", use_container_width=True):
-        st.session_state.pagina_atual = i
-        st.experimental_rerun()
+# ------------------ Carregamento e Login ------------------ #
+st.title("📌 Subprocessos Inteligentes Offline/Online")
 
-# --- Bloco atual ---
-bloco = blocos[pagina_atual - 1]
-st.subheader(f"Bloco {pagina_atual}")
+# Carrega dados persistentes
+dados = carregar_dados()
 
-st.dataframe(bloco.style.apply(cor_linha, axis=1), use_container_width=True)
+if "logado" not in st.session_state:
+    st.session_state.logado = False
 
-# --- Botões de execução ---
-col1, col2 = st.columns(2)
-bloco_id = str(bloco.index[0])
-
-with col1:
-    if st.button("❌ Marcar em execução"):
-        st.session_state.dados["status_blocos"][bloco_id] = "em execução"
-        salvar_dados(st.session_state.dados)
-        st.experimental_rerun()
-
-with col2:
-    if st.button("✔ Marcar como executado"):
-        st.session_state.dados["status_blocos"][bloco_id] = "executado"
-        # Salva histórico
-        st.session_state.dados["historico"].append({
-            "usuario": st.session_state.usuario_logado,
-            "bloco": bloco_id,
-            "fornecedor": bloco["FORNECEDOR"].iloc[0],
-            "pag": bloco["PAG"].iloc[0],
-            "data": datetime.now().strftime("%d/%m/%Y %H:%M")
-        })
-        salvar_dados(st.session_state.dados)
-        st.experimental_rerun()
-
-# --- Histórico lateral ---
-st.sidebar.title("🗓 Histórico de Subprocessos")
-if st.session_state.dados["historico"]:
-    st.sidebar.dataframe(pd.DataFrame(st.session_state.dados["historico"]))
+if not st.session_state.logado:
+    st.subheader("👤 Login")
+    usuario = st.text_input("Nome do usuário")
+    senha = st.text_input("Senha", type="password")
+    if st.button("Entrar"):
+        if usuario in dados["usuarios"] and dados["usuarios"][usuario]["senha"] == senha:
+            st.session_state.logado = True
+            st.session_state.usuario = usuario
+            st.success(f"Olá {usuario}! ({dados['usuarios'][usuario]['tipo'].capitalize()})")
+        else:
+            st.error("Usuário ou senha incorretos.")
 else:
-    st.sidebar.info("Nenhum subprocesso registrado ainda.")
+    st.sidebar.write(f"👤 Usuário logado: **{st.session_state.usuario}**")
+    
+    # ------------------ Upload CSV ------------------ #
+    uploaded_file = st.file_uploader("📥 Importar CSV", type=["csv"])
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+        df.columns = df.columns.str.strip()
+        df = filtrar_blocos(df)
+        st.session_state.df = df
+        st.success("CSV carregado e filtrado!")
+
+    if "df" in st.session_state:
+        df = st.session_state.df
+        
+        # ------------------ Agrupamento por empresa e PAG ------------------ #
+        agrupamentos = []
+        for _, grupo in df.groupby(["FORNECEDOR", "PAG"]):
+            blocos = [grupo.iloc[i:i+9] for i in range(0, len(grupo), 9)]
+            agrupamentos.extend(blocos)
+        
+        total_paginas = len(agrupamentos)
+        
+        if "pagina_atual" not in st.session_state:
+            st.session_state.pagina_atual = dados.get("pagina_atual", 0)
+        
+        # ------------------ Paginação com números ------------------ #
+        st.subheader("📄 Blocos")
+        paginas_col = st.columns(total_paginas)
+        for i in range(total_paginas):
+            cor_botao = "green" if all(str(bloco["ID"].iloc[0]) in dados["status_blocos"] and
+                                       dados["status_blocos"][str(bloco["ID"].iloc[0])] == "executado"
+                                       for bloco in [agrupamentos[i]]) else "lightgrey"
+            if paginas_col[i].button(f"{i+1}", key=f"pagina_{i}", help="Clique para ir para esta página"):
+                st.session_state.pagina_atual = i
+                dados["pagina_atual"] = i
+                salvar_dados(dados)
+        
+        # ------------------ Mostrar blocos da página atual ------------------ #
+        bloco_atual = agrupamentos[st.session_state.pagina_atual]
+        st.dataframe(bloco_atual.style.apply(destacar_linhas, axis=1), use_container_width=True)
+        
+        # ------------------ Botões de execução ------------------ #
+        col1, col2 = st.columns(2)
+        id_bloco = str(bloco_atual["ID"].iloc[0])
+        with col1:
+            if st.button("❌ Marcar como em execução"):
+                dados["status_blocos"][id_bloco] = "em execução"
+                salvar_dados(dados)
+                st.experimental_rerun()
+        with col2:
+            if st.button("✔ Marcar como executado"):
+                dados["status_blocos"][id_bloco] = "executado"
+                dados["historico"].append({
+                    "usuario": st.session_state.usuario,
+                    "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                    "fornecedor": bloco_atual["FORNECEDOR"].iloc[0],
+                    "PAG": bloco_atual["PAG"].iloc[0],
+                    "ID": id_bloco
+                })
+                salvar_dados(dados)
+                st.experimental_rerun()
+        
+        # ------------------ Histórico lateral ------------------ #
+        st.sidebar.title("🗓 Histórico de Subprocessos")
+        if dados["historico"]:
+            historico_df = pd.DataFrame(dados["historico"])
+            st.sidebar.dataframe(historico_df)
+        else:
+            st.sidebar.info("Nenhum subprocesso registrado ainda.")
+        
+        # ------------------ Botão sair ------------------ #
+        if st.sidebar.button("🚪 Sair da sessão"):
+            st.session_state.logado = False
+            salvar_dados(dados)
+            st.experimental_rerun()

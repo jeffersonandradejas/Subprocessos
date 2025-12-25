@@ -1,179 +1,146 @@
-import pandas as pd
 import streamlit as st
+import pandas as pd
+import json
+import os
 from datetime import datetime
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-import traceback
 
-# Autenticação com Google Sheets
-def conectar_planilha():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name("credenciais.json", scope)
-    client = gspread.authorize(creds)
-    return client
+# ---------------------------
+# Arquivo JSON de persistência
+# ---------------------------
+ARQUIVO = "dados.json"
 
-# Atualiza ou insere status global
-def atualizar_status_global(id_bloco, status):
-    try:
-        client = conectar_planilha()
-        planilha = client.open("Subprocessos Inteligentes")
-        aba = planilha.worksheet("Status_Global")
-        dados = aba.get_all_records()
-        ids_existentes = [str(item["ID"]) for item in dados]
+def carregar_dados():
+    if os.path.exists(ARQUIVO):
+        with open(ARQUIVO, "r", encoding="utf-8") as f:
+            return json.load(f)
+    else:
+        return {"usuarios": {}}
 
-        if id_bloco in ids_existentes:
-            linha = ids_existentes.index(id_bloco) + 2
-            aba.update_cell(linha, 2, status)
-        else:
-            aba.append_row([id_bloco, status])
-    except Exception:
-        erro_detalhado = traceback.format_exc()
-        st.error("❌ Erro ao atualizar status global. Veja detalhes abaixo:")
-        st.code(erro_detalhado, language="python")
+def salvar_dados(dados):
+    with open(ARQUIVO, "w", encoding="utf-8") as f:
+        json.dump(dados, f, indent=4, ensure_ascii=False)
 
-# Carrega status global como dicionário
-@st.cache_data(ttl=30)
-def carregar_status_global():
-    try:
-        client = conectar_planilha()
-        planilha = client.open("Subprocessos Inteligentes")
-        aba = planilha.worksheet("Status_Global")
-        dados = aba.get_all_records()
-        return {str(item["ID"]): item["STATUS"] for item in dados}
-    except:
-        return {}
+# ---------------------------
+# Streamlit App
+# ---------------------------
+st.set_page_config(page_title="Controle de Subprocessos", layout="wide")
+st.title("📌 Subprocessos Inteligentes Offline/Online")
 
-# Registra subprocesso como executado
-def registrar_executado(id_bloco, fornecedor, pag, valor):
-    try:
-        client = conectar_planilha()
-        planilha = client.open("Subprocessos Inteligentes")
-        aba = planilha.worksheet("Executados")
-        nova_linha = [id_bloco, "Jefferson", datetime.now().strftime("%d/%m/%Y %H:%M"), fornecedor, pag, valor]
-        aba.append_row(nova_linha)
-        return True
-    except Exception:
-        erro_detalhado = traceback.format_exc()
-        st.error("❌ Erro ao salvar na aba Executados. Veja detalhes abaixo:")
-        st.code(erro_detalhado, language="python")
-        return False
+dados = carregar_dados()
 
-# Carrega planilha principal
-@st.cache_data
-def carregar_planilha():
-    url_dados = "https://docs.google.com/spreadsheets/d/1o2Z-9t0zVCklB5rkeIOo5gCaSO1BwlrxKXTZv2sR4OQ/export?format=csv"
-    df = pd.read_csv(url_dados)
-    df.columns = df.columns.str.strip()
-    return df
+# ---------------------------
+# Login simples
+# ---------------------------
+usuario = st.text_input("👤 Nome do usuário").strip().lower()
+if not usuario:
+    st.stop()
 
-df = carregar_planilha()
-status_global = carregar_status_global()
+if usuario not in dados["usuarios"]:
+    dados["usuarios"][usuario] = {"blocos": {}, "historico": []}
+    salvar_dados(dados)
 
-st.title("📄 Subprocessos Inteligentes")
-st.write("Planilha carregada com sucesso!")
+user = dados["usuarios"][usuario]
 
-# Filtro robusto
-status_temp = df["STATUS"].astype(str).str.lower().str.strip()
-df_filtrado = df[~status_temp.str.contains("cancelado|enviado aci", na=False)]
+# ---------------------------
+# Carregar/Inserir blocos de subprocessos
+# ---------------------------
+st.subheader("⚙️ Configuração de Blocos")
 
-# Agrupamento por fornecedor e PAG
-agrupamentos = []
-for _, grupo in df_filtrado.groupby(["FORNECEDOR", "PAG"]):
-    blocos = [grupo.iloc[i:i+9] for i in range(0, len(grupo), 9)]
-    agrupamentos.extend(blocos)
+if "blocos_df" not in st.session_state:
+    # Inicialmente converte os blocos do JSON em DataFrame
+    if user["blocos"]:
+        st.session_state.blocos_df = pd.DataFrame.from_dict(user["blocos"], orient="index")
+        st.session_state.blocos_df.index.name = "ID"
+        st.session_state.blocos_df.reset_index(inplace=True)
+    else:
+        st.session_state.blocos_df = pd.DataFrame(columns=["ID", "fornecedor", "pag", "valor", "status"])
 
+df_blocos = st.session_state.blocos_df
+
+# Inserir novo bloco
+with st.expander("➕ Adicionar novo bloco"):
+    fornecedor = st.text_input("Fornecedor", key="fornecedor")
+    pag = st.text_input("PAG", key="pag")
+    valor = st.number_input("Valor", min_value=0.0, key="valor")
+    if st.button("Adicionar bloco"):
+        novo_id = str(len(df_blocos) + 1)
+        novo_bloco = {"ID": novo_id, "fornecedor": fornecedor, "pag": pag, "valor": valor, "status": ""}
+        df_blocos = pd.concat([df_blocos, pd.DataFrame([novo_bloco])], ignore_index=True)
+        st.session_state.blocos_df = df_blocos
+        # Atualizar no JSON
+        user["blocos"][novo_id] = novo_bloco
+        salvar_dados(dados)
+        st.success(f"Bloco {novo_id} adicionado!")
+
+# ---------------------------
 # Paginação
-sugestoes_por_pagina = 8
+# ---------------------------
+blocos_por_pagina = 5
+total_paginas = (len(df_blocos) - 1) // blocos_por_pagina + 1
 if "pagina_atual" not in st.session_state:
     st.session_state.pagina_atual = 0
 
-total_paginas = (len(agrupamentos) - 1) // sugestoes_por_pagina + 1
-inicio = st.session_state.pagina_atual * sugestoes_por_pagina
-fim = inicio + sugestoes_por_pagina
-agrupamentos_pagina = agrupamentos[inicio:fim]
+pagina = st.session_state.pagina_atual
+inicio = pagina * blocos_por_pagina
+fim = inicio + blocos_por_pagina
+blocos_pagina = df_blocos.iloc[inicio:fim]
 
-# Histórico local
-if "historico" not in st.session_state:
-    st.session_state.historico = []
+# ---------------------------
+# Função de destaque por status
+# ---------------------------
+def destacar_status(row):
+    if row["status"] == "em execução":
+        return ["background-color: #FFF3CD"]*len(row)
+    elif row["status"] == "executado":
+        return ["background-color: #E0E0E0"]*len(row)
+    else:
+        return [""]*len(row)
 
-# Função para destacar linhas com base no status global
-def destacar_linhas_em_execucao(df):
-    def cor_linha(row):
-        id_linha = str(row["ID"])
-        status = status_global.get(id_linha, "")
-        if status == "em execução":
-            return ["background-color: #FFF3CD"] * len(row)
-        elif status == "executado":
-            return ["background-color: #E0E0E0"] * len(row)
-        else:
-            return [""] * len(row)
-    return df.style.apply(cor_linha, axis=1)
+# ---------------------------
+# Exibir blocos da página
+# ---------------------------
+st.subheader(f"📄 Blocos Página {pagina + 1} / {total_paginas}")
 
-# Exibir sugestões
-sugestoes_visiveis = 0
-for i, bloco in enumerate(agrupamentos_pagina):
-    indice_global = inicio + i
-    id_bloco = str(bloco["ID"].iloc[0])
-
-    if status_global.get(id_bloco) == "executado":
-        continue
-
-    sugestoes_visiveis += 1
-    st.subheader(f"Subprocesso sugerido {indice_global + 1}")
-    st.dataframe(destacar_linhas_em_execucao(bloco))
-
+for i, row in blocos_pagina.iterrows():
+    st.dataframe(pd.DataFrame([row]).style.apply(destacar_status, axis=1))
     col1, col2 = st.columns(2)
     with col1:
-        status_atual = status_global.get(id_bloco)
-        texto_botao = "🔓 Liberar execução" if status_atual == "em execução" else "❌ Marcar como em execução"
-        botao_execucao = st.button(texto_botao, key=f"execucao_{indice_global}")
-        if botao_execucao:
-            novo_status = "" if status_atual == "em execução" else "em execução"
-            atualizar_status_global(id_bloco, novo_status)
-            st.rerun()
-
+        if st.button("❌ Marcar como em execução", key=f"exec_{row['ID']}"):
+            df_blocos.loc[df_blocos["ID"]==row["ID"], "status"] = "em execução"
+            user["blocos"][row["ID"]]["status"] = "em execução"
+            salvar_dados(dados)
+            st.experimental_rerun()
     with col2:
-        if st.button("✔ Marcar como executado", key=f"finalizar_{indice_global}"):
-            fornecedor = bloco["FORNECEDOR"].iloc[0]
-            pag = bloco["PAG"].iloc[0]
-            valor = bloco["VALOR"].sum()
-
-            sucesso = registrar_executado(id_bloco, fornecedor, pag, valor)
-            if sucesso:
-                atualizar_status_global(id_bloco, "executado")
-                st.success("Subprocesso registrado na aba Executados!")
-
-            st.session_state.historico.append({
-                "data": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                "fornecedor": fornecedor,
-                "pag": pag,
-                "ids": id_bloco,
-                "valor_total": valor
+        if st.button("✔ Marcar como executado", key=f"exec_final_{row['ID']}"):
+            df_blocos.loc[df_blocos["ID"]==row["ID"], "status"] = "executado"
+            user["blocos"][row["ID"]]["status"] = "executado"
+            # Adicionar ao histórico
+            user["historico"].append({
+                "id": row["ID"],
+                "fornecedor": row["fornecedor"],
+                "pag": row["pag"],
+                "valor": row["valor"],
+                "data": datetime.now().strftime("%d/%m/%Y %H:%M")
             })
-            st.rerun()
+            salvar_dados(dados)
+            st.experimental_rerun()
 
-# Se não houver mais sugestões visíveis
-if sugestoes_visiveis == 0:
-    st.info("✅ Nenhuma sugestão restante nesta página.")
-
-# Navegação
-st.write(f"📄 Página {st.session_state.pagina_atual + 1} de {total_paginas}")
-col_nav1, col_nav2 = st.columns([1, 1])
-pagina_anterior = col_nav1.button("⬅ Página anterior")
-pagina_proxima = col_nav2.button("➡ Próxima página")
-
-if pagina_anterior and st.session_state.pagina_atual > 0:
+# ---------------------------
+# Navegação entre páginas
+# ---------------------------
+col1, col2 = st.columns(2)
+if col1.button("⬅ Página anterior") and pagina > 0:
     st.session_state.pagina_atual -= 1
-    st.rerun()
-
-if pagina_proxima and st.session_state.pagina_atual < total_paginas - 1:
+    st.experimental_rerun()
+if col2.button("➡ Próxima página") and pagina < total_paginas - 1:
     st.session_state.pagina_atual += 1
-    st.rerun()
+    st.experimental_rerun()
 
+# ---------------------------
 # Histórico lateral
-st.sidebar.title("📋 Histórico de Subprocessos")
-if st.session_state.historico:
-    historico_df = pd.DataFrame(st.session_state.historico)
-    st.sidebar.dataframe(historico_df)
+# ---------------------------
+st.sidebar.title("🗓 Histórico de Subprocessos")
+if user["historico"]:
+    st.sidebar.dataframe(pd.DataFrame(user["historico"]))
 else:
     st.sidebar.info("Nenhum subprocesso registrado ainda.")

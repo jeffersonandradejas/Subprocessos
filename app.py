@@ -14,7 +14,7 @@ ITENS_POR_PAGINA = 8
 ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
 
 # ===============================
-# UTILIDADES DE PERSISTÊNCIA
+# PERSISTÊNCIA
 # ===============================
 def carregar_dados():
     if not os.path.exists(ARQUIVO_DADOS):
@@ -41,18 +41,43 @@ dados = carregar_dados()
 # ===============================
 st.sidebar.title("👤 Login")
 
-usuario = st.sidebar.text_input("Nome do usuário")
-senha = st.sidebar.text_input("Senha", type="password")
+if "usuario_logado" not in st.session_state:
+    st.session_state.usuario_logado = None
 
-if usuario not in dados["usuarios"]:
-    st.warning("Usuário não encontrado.")
+if not st.session_state.usuario_logado:
+    usuario = st.sidebar.text_input("Nome do usuário")
+    senha = st.sidebar.text_input("Senha", type="password")
+    entrar = st.sidebar.button("🔐 Entrar")
+
+    if entrar:
+        if usuario not in dados["usuarios"]:
+            st.sidebar.error("Usuário não encontrado.")
+            st.stop()
+
+        senha_correta = dados["usuarios"][usuario]["senha"]
+
+        if senha_correta != senha:
+            st.sidebar.error("Senha incorreta.")
+            st.stop()
+
+        st.session_state.usuario_logado = usuario
+        st.rerun()
+else:
+    usuario = st.session_state.usuario_logado
+    tipo_usuario = dados["usuarios"][usuario]["tipo"]
+    st.sidebar.success(f"Olá {usuario}!")
+
+    if st.sidebar.button("🚪 Sair"):
+        st.session_state.usuario_logado = None
+        st.rerun()
+
+# ===============================
+# SE NÃO LOGADO
+# ===============================
+if not st.session_state.usuario_logado:
+    st.info("Faça login para continuar.")
     st.stop()
 
-if dados["usuarios"][usuario]["senha"] != senha:
-    st.warning("Senha incorreta (admin pode entrar com senha vazia).")
-    st.stop()
-
-st.sidebar.success(f"Olá {usuario}!")
 tipo_usuario = dados["usuarios"][usuario]["tipo"]
 
 # ===============================
@@ -66,14 +91,13 @@ if tipo_usuario == "admin":
         df = pd.read_csv(arquivo)
         df.columns = df.columns.str.strip()
 
-        # Filtra apenas ASSINAR OD / CH
         df = df[df["STATUS"].isin(ACOES_VALIDAS)]
 
         dados["dados_planilha"] = df.to_dict(orient="records")
         dados["status_blocos"] = {}
         salvar_dados(dados)
 
-        st.sidebar.success("CSV importado e salvo com sucesso!")
+        st.sidebar.success("CSV importado e salvo!")
 
 # ===============================
 # SE NÃO HOUVER DADOS
@@ -85,10 +109,9 @@ if not dados["dados_planilha"]:
 df = pd.DataFrame(dados["dados_planilha"])
 
 # ===============================
-# AGRUPAMENTO INTELIGENTE
+# AGRUPAMENTO
 # ===============================
 grupos = []
-
 for fornecedor, g1 in df.groupby("FORNECEDOR"):
     for pag, g2 in g1.groupby("PAG"):
         blocos = [g2.iloc[i:i+9] for i in range(0, len(g2), 9)]
@@ -101,7 +124,9 @@ total_paginas = (len(grupos) - 1) // ITENS_POR_PAGINA + 1
 # ===============================
 pagina = st.session_state.get("pagina", 1)
 
+st.markdown("### 📌 Páginas")
 cols = st.columns(min(total_paginas, 10))
+
 for i in range(1, total_paginas + 1):
     status_pag = []
     for bloco in grupos[(i-1)*ITENS_POR_PAGINA:i*ITENS_POR_PAGINA]:
@@ -116,7 +141,7 @@ for i in range(1, total_paginas + 1):
         cor = "🔴"
 
     if cols[(i-1) % len(cols)].button(f"{cor} {i}"):
-        st.session_state["pagina"] = i
+        st.session_state.pagina = i
         st.rerun()
 
 inicio = (pagina - 1) * ITENS_POR_PAGINA
@@ -126,46 +151,44 @@ blocos_pagina = grupos[inicio:fim]
 st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
 
 # ===============================
-# EXIBIÇÃO DOS BLOCOS
+# BLOCOS
 # ===============================
 for bloco in blocos_pagina:
     id_bloco = str(bloco["ID"].iloc[0])
-    status_info = dados["status_blocos"].get(id_bloco, {"status": "pendente"})
+    status = dados["status_blocos"].get(id_bloco, {"status": "pendente"})
 
-    if status_info["status"] == "executado":
-        cor = "🟢"
-    elif status_info["status"] == "em_execucao":
-        cor = "🟡" if status_info.get("usuario") == usuario else "🔒"
+    if status["status"] == "executado":
+        icone = "🟢"
+    elif status["status"] == "em_execucao":
+        icone = "🟡" if status.get("usuario") == usuario else "🔒"
     else:
-        cor = "🔴"
+        icone = "🔴"
 
-    st.subheader(f"{cor} Subprocesso {id_bloco}")
+    st.subheader(f"{icone} Subprocesso {id_bloco}")
     st.dataframe(bloco, use_container_width=True)
 
-    col1, col2 = st.columns(2)
+    c1, c2 = st.columns(2)
 
-    with col1:
-        if status_info["status"] == "pendente":
-            if st.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
-                dados["status_blocos"][id_bloco] = {
-                    "status": "em_execucao",
-                    "usuario": usuario,
-                    "inicio": datetime.now().isoformat()
-                }
-                salvar_dados(dados)
-                st.rerun()
+    if status["status"] == "pendente":
+        if c1.button("▶ Iniciar", key=f"iniciar_{id_bloco}"):
+            dados["status_blocos"][id_bloco] = {
+                "status": "em_execucao",
+                "usuario": usuario,
+                "inicio": datetime.now().isoformat()
+            }
+            salvar_dados(dados)
+            st.rerun()
 
-    with col2:
-        if status_info.get("usuario") == usuario and status_info["status"] == "em_execucao":
-            if st.button("✔ Finalizar", key=f"finalizar_{id_bloco}"):
-                dados["status_blocos"][id_bloco]["status"] = "executado"
-                dados["historico"].append({
-                    "id": id_bloco,
-                    "usuario": usuario,
-                    "data": datetime.now().strftime("%d/%m/%Y %H:%M")
-                })
-                salvar_dados(dados)
-                st.rerun()
+    if status.get("usuario") == usuario and status["status"] == "em_execucao":
+        if c2.button("✔ Finalizar", key=f"finalizar_{id_bloco}"):
+            dados["status_blocos"][id_bloco]["status"] = "executado"
+            dados["historico"].append({
+                "id": id_bloco,
+                "usuario": usuario,
+                "data": datetime.now().strftime("%d/%m/%Y %H:%M")
+            })
+            salvar_dados(dados)
+            st.rerun()
 
 # ===============================
 # HISTÓRICO

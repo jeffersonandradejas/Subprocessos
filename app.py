@@ -7,7 +7,6 @@ from supabase import create_client
 # CONFIGURAÇÃO
 # ===============================
 st.set_page_config("Subprocessos Inteligentes", layout="wide")
-
 ITENS_POR_PAGINA = 8
 ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
 
@@ -16,48 +15,26 @@ ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
 # ===============================
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ===============================
-# CARREGAR DADOS
+# USUÁRIOS FIXOS (pode migrar para tabela Supabase depois)
 # ===============================
-def carregar_usuarios():
-    # Aqui você pode criar uma tabela 'usuarios' no Supabase, ou manter lista fixa
-    # Estrutura: { "usuario": {"senha": "...", "tipo": "admin/usuario"} }
-    return {
-        "admin": {"senha": "123", "tipo": "admin"},
-        "sabrina": {"senha": "ladybinacs", "tipo": "usuario"},
-    }
-
-usuarios = carregar_usuarios()
-
-def carregar_dados():
-    # Ler subprocessos
-    res = supabase.table("subprocessos").select("*").execute()
-    df = pd.DataFrame(res.data) if res.data else pd.DataFrame()
-    
-    # Ler status de blocos e histórico
-    res_status = supabase.table("status_blocos").select("*").execute()
-    status_blocos = {str(r["id_bloco"]): r for r in res_status.data} if res_status.data else {}
-
-    res_hist = supabase.table("historico").select("*").execute()
-    historico = res_hist.data if res_hist.data else []
-
-    return df, status_blocos, historico
+usuarios = {
+    "admin": {"senha": "123", "tipo": "admin"},
+    "sabrina": {"senha": "ladybinacs", "tipo": "usuario"},
+}
 
 # ===============================
 # LOGIN
 # ===============================
 st.sidebar.title("👤 Login")
-
 if "usuario_logado" not in st.session_state:
     st.session_state.usuario_logado = None
 
 if not st.session_state.usuario_logado:
     usuario_input = st.sidebar.text_input("Nome do usuário")
     senha_input = st.sidebar.text_input("Senha", type="password")
-
     if st.sidebar.button("🔐 Entrar"):
         if usuario_input not in usuarios:
             st.sidebar.error("Usuário não encontrado.")
@@ -83,27 +60,37 @@ usuario = st.session_state.usuario_logado
 tipo_usuario = usuarios[usuario]["tipo"]
 
 # ===============================
-# ADMIN — IMPORTAR CSV (uma vez)
+# ADMIN: IMPORTAR CSV UMA VEZ
 # ===============================
 if tipo_usuario == "admin":
     st.sidebar.title("⚙️ Administração")
     arquivo = st.sidebar.file_uploader("📁 Importar CSV", type="csv")
-
     if arquivo:
         df_csv = pd.read_csv(arquivo)
         df_csv.columns = df_csv.columns.str.strip()
         df_csv = df_csv[df_csv["STATUS"].isin(ACOES_VALIDAS)]
 
-        # Inserir dados no Supabase (subprocessos)
+        # Salvar no Supabase
         for _, row in df_csv.iterrows():
             supabase.table("subprocessos").upsert(row.to_dict()).execute()
-        st.sidebar.success("CSV importado com sucesso!")
+        st.sidebar.success("CSV importado e salvo no Supabase!")
 
 # ===============================
-# CARREGAR DADOS ATUAIS
+# CARREGAR DADOS
 # ===============================
+def carregar_dados():
+    # Subprocessos
+    res = supabase.table("subprocessos").select("*").execute()
+    df = pd.DataFrame(res.data) if res.data else pd.DataFrame()
+    # Status dos blocos
+    res_status = supabase.table("status_blocos").select("*").execute()
+    status_blocos = {str(r["id_bloco"]): r for r in res_status.data} if res_status.data else {}
+    # Histórico
+    res_hist = supabase.table("historico").select("*").execute()
+    historico = res_hist.data if res_hist.data else []
+    return df, status_blocos, historico
+
 df, status_blocos, historico = carregar_dados()
-
 if df.empty:
     st.warning("Nenhum subprocesso disponível. Admin deve importar CSV.")
     st.stop()
@@ -125,20 +112,17 @@ pagina = st.session_state.get("pagina", 1)
 # ===============================
 st.markdown("### 📌 Páginas")
 cols = st.columns(min(total_paginas, 10))
-
 for i in range(1, total_paginas + 1):
     status_pag = []
     for bloco in grupos[(i-1)*ITENS_POR_PAGINA:i*ITENS_POR_PAGINA]:
         idb = str(bloco["ID"].iloc[0])
         status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
-
     if status_pag and all(s == "executado" for s in status_pag):
         icone = "🟢"
     elif any(s == "em_execucao" for s in status_pag):
         icone = "🟡"
     else:
         icone = "🔴"
-
     if cols[(i-1) % len(cols)].button(f"{icone} {i}"):
         st.session_state.pagina = i
         st.rerun()
@@ -168,6 +152,7 @@ for bloco in blocos_pagina:
 
     c1, c2 = st.columns(2)
 
+    # Iniciar execução
     if status["status"] == "pendente":
         if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
             supabase.table("status_blocos").upsert({
@@ -178,6 +163,7 @@ for bloco in blocos_pagina:
             }).execute()
             st.rerun()
 
+    # Finalizar execução
     if status.get("usuario") == usuario and status["status"] == "em_execucao":
         if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
             supabase.table("status_blocos").upsert({
@@ -203,7 +189,7 @@ else:
     st.sidebar.info("Nenhum subprocesso executado ainda.")
 
 # ===============================
-# EXPORTAR CSV ATUALIZADO (opcional)
+# EXPORTAR CSV ATUALIZADO
 # ===============================
 csv_bytes = df.to_csv(index=False).encode("utf-8")
 st.sidebar.download_button(

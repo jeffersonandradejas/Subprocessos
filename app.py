@@ -14,7 +14,7 @@ ITENS_POR_PAGINA = 8
 ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
 
 # ===============================
-# FUNÇÕES DE PERSISTÊNCIA
+# FUNÇÕES DE PERSISTÊNCIA (SEGURAS)
 # ===============================
 def salvar_dados(dados):
     with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
@@ -32,22 +32,33 @@ def carregar_dados():
         "dados_planilha": []
     }
 
+    # Se não existir, cria
     if not os.path.exists(ARQUIVO_DADOS):
         salvar_dados(dados_iniciais)
-    else:
+        return dados_iniciais
+
+    # Se existir, tenta carregar
+    try:
         with open(ARQUIVO_DADOS, "r", encoding="utf-8") as f:
-            dados_existentes = json.load(f)
+            dados = json.load(f)
+    except Exception:
+        # NÃO apaga tudo se der erro
+        return dados_iniciais
 
-        # 🔥 GARANTE ADMIN SEMPRE CORRETO
-        if (
-            "usuarios" not in dados_existentes
-            or "admin" not in dados_existentes["usuarios"]
-            or dados_existentes["usuarios"]["admin"].get("senha") != "123"
-        ):
-            salvar_dados(dados_iniciais)
+    # 🔐 Garante estrutura mínima SEM resetar dados
+    if "usuarios" not in dados:
+        dados["usuarios"] = {}
 
-    with open(ARQUIVO_DADOS, "r", encoding="utf-8") as f:
-        return json.load(f)
+    if "admin" not in dados["usuarios"]:
+        dados["usuarios"]["admin"] = {"senha": "123", "tipo": "admin"}
+
+    dados.setdefault("status_blocos", {})
+    dados.setdefault("historico", [])
+    dados.setdefault("pagina_atual", 0)
+    dados.setdefault("dados_planilha", [])
+
+    salvar_dados(dados)
+    return dados
 
 dados = carregar_dados()
 
@@ -135,7 +146,7 @@ for fornecedor, g1 in df.groupby("FORNECEDOR"):
 total_paginas = max(1, (len(grupos) - 1) // ITENS_POR_PAGINA + 1)
 
 # ===============================
-# PAGINAÇÃO NUMÉRICA
+# PAGINAÇÃO
 # ===============================
 pagina = st.session_state.get("pagina", 1)
 

@@ -1,66 +1,22 @@
 import streamlit as st
 import pandas as pd
-import json
-import os
 from datetime import datetime
+from supabase import create_client
 
 # ===============================
 # CONFIGURAÇÃO
 # ===============================
 st.set_page_config("Subprocessos Inteligentes", layout="wide")
 
-ARQUIVO_DADOS = "dados.json"
 ITENS_POR_PAGINA = 8
 ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
 
 # ===============================
-# FUNÇÕES DE PERSISTÊNCIA (SEGURAS)
+# CONEXÃO COM SUPABASE
 # ===============================
-def salvar_dados(dados):
-    with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
-        json.dump(dados, f, ensure_ascii=False, indent=2)
-
-def carregar_dados():
-    dados_iniciais = {
-        "usuarios": {
-            "admin": {"senha": "123", "tipo": "admin"},
-            "sabrina": {"senha": "ladybinacs", "tipo": "usuario"}
-        },
-        "status_blocos": {},
-        "historico": [],
-        "pagina_atual": 0,
-        "dados_planilha": []
-    }
-
-    # Se não existir, cria
-    if not os.path.exists(ARQUIVO_DADOS):
-        salvar_dados(dados_iniciais)
-        return dados_iniciais
-
-    # Se existir, tenta carregar
-    try:
-        with open(ARQUIVO_DADOS, "r", encoding="utf-8") as f:
-            dados = json.load(f)
-    except Exception:
-        # NÃO apaga tudo se der erro
-        return dados_iniciais
-
-    # 🔐 Garante estrutura mínima SEM resetar dados
-    if "usuarios" not in dados:
-        dados["usuarios"] = {}
-
-    if "admin" not in dados["usuarios"]:
-        dados["usuarios"]["admin"] = {"senha": "123", "tipo": "admin"}
-
-    dados.setdefault("status_blocos", {})
-    dados.setdefault("historico", [])
-    dados.setdefault("pagina_atual", 0)
-    dados.setdefault("dados_planilha", [])
-
-    salvar_dados(dados)
-    return dados
-
-dados = carregar_dados()
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ===============================
 # LOGIN
@@ -75,11 +31,17 @@ if not st.session_state.usuario_logado:
     senha_input = st.sidebar.text_input("Senha", type="password")
 
     if st.sidebar.button("🔐 Entrar"):
-        if usuario_input not in dados["usuarios"]:
+        usuario = (
+            supabase.table("usuarios")
+            .select("*")
+            .eq("usuario", usuario_input)
+            .execute()
+        )
+        if not usuario.data:
             st.sidebar.error("Usuário não encontrado.")
             st.stop()
 
-        if dados["usuarios"][usuario_input]["senha"] != senha_input:
+        if usuario.data[0]["senha"] != senha_input:
             st.sidebar.error("Senha incorreta.")
             st.stop()
 
@@ -87,7 +49,12 @@ if not st.session_state.usuario_logado:
         st.rerun()
 else:
     usuario = st.session_state.usuario_logado
-    tipo_usuario = dados["usuarios"][usuario]["tipo"]
+    tipo_usuario = (
+        supabase.table("usuarios")
+        .select("tipo")
+        .eq("usuario", usuario)
+        .execute()
+    ).data[0]["tipo"]
     st.sidebar.success(f"Olá {usuario}!")
 
     if st.sidebar.button("🚪 Sair"):
@@ -102,7 +69,12 @@ if not st.session_state.usuario_logado:
     st.stop()
 
 usuario = st.session_state.usuario_logado
-tipo_usuario = dados["usuarios"][usuario]["tipo"]
+tipo_usuario = (
+    supabase.table("usuarios")
+    .select("tipo")
+    .eq("usuario", usuario)
+    .execute()
+).data[0]["tipo"]
 
 # ===============================
 # ADMIN — IMPORTAR CSV
@@ -114,25 +86,34 @@ if tipo_usuario == "admin":
     if arquivo:
         df = pd.read_csv(arquivo)
         df.columns = df.columns.str.strip()
-
-        # FILTRA SOMENTE ASSINAR OD / CH
         df = df[df["STATUS"].isin(ACOES_VALIDAS)]
 
-        dados["dados_planilha"] = df.to_dict(orient="records")
-        dados["status_blocos"] = {}
-        dados["historico"] = []
+        # Apaga subprocessos antigos
+        supabase.table("subprocessos").delete().neq("id", 0).execute()
+        supabase.table("status_blocos").delete().neq("id_bloco", "").execute()
+        supabase.table("historico_execucao").delete().neq("id", 0).execute()
 
-        salvar_dados(dados)
+        # Insere novos subprocessos
+        for _, row in df.iterrows():
+            dados = row.to_dict()
+            id_bloco = str(dados["ID"])
+            supabase.table("subprocessos").insert({
+                "id_bloco": id_bloco,
+                "fornecedor": dados["FORNECEDOR"],
+                "pag": dados["PAG"],
+                "dados": dados
+            }).execute()
         st.sidebar.success("CSV importado com sucesso!")
 
 # ===============================
-# SE NÃO HOUVER DADOS
+# CARREGAR SUBPROCESSOS
 # ===============================
-if not dados.get("dados_planilha"):
+subprocessos_resp = supabase.table("subprocessos").select("*").execute()
+if not subprocessos_resp.data:
     st.warning("Nenhum CSV importado ainda.")
     st.stop()
 
-df = pd.DataFrame(dados["dados_planilha"])
+df = pd.DataFrame([s["dados"] for s in subprocessos_resp.data])
 
 # ===============================
 # AGRUPAMENTO INTELIGENTE
@@ -146,10 +127,9 @@ for fornecedor, g1 in df.groupby("FORNECEDOR"):
 total_paginas = max(1, (len(grupos) - 1) // ITENS_POR_PAGINA + 1)
 
 # ===============================
-# PAGINAÇÃO
+# PAGINAÇÃO NUMÉRICA
 # ===============================
 pagina = st.session_state.get("pagina", 1)
-
 st.markdown("### 📌 Páginas")
 cols = st.columns(min(total_paginas, 10))
 
@@ -157,7 +137,8 @@ for i in range(1, total_paginas + 1):
     status_pag = []
     for bloco in grupos[(i-1)*ITENS_POR_PAGINA:i*ITENS_POR_PAGINA]:
         idb = str(bloco["ID"].iloc[0])
-        status_pag.append(dados["status_blocos"].get(idb, {}).get("status", "pendente"))
+        status_resp = supabase.table("status_blocos").select("*").eq("id_bloco", idb).execute()
+        status_pag.append(status_resp.data[0]["status"] if status_resp.data else "pendente")
 
     if status_pag and all(s == "executado" for s in status_pag):
         icone = "🟢"
@@ -181,7 +162,8 @@ st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
 # ===============================
 for bloco in blocos_pagina:
     id_bloco = str(bloco["ID"].iloc[0])
-    status = dados["status_blocos"].get(id_bloco, {"status": "pendente"})
+    status_resp = supabase.table("status_blocos").select("*").eq("id_bloco", id_bloco).execute()
+    status = status_resp.data[0] if status_resp.data else {"status": "pendente"}
 
     if status["status"] == "executado":
         icone = "🟢"
@@ -195,32 +177,34 @@ for bloco in blocos_pagina:
 
     c1, c2 = st.columns(2)
 
+    # Iniciar execução
     if status["status"] == "pendente":
         if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
-            dados["status_blocos"][id_bloco] = {
+            supabase.table("status_blocos").upsert({
+                "id_bloco": id_bloco,
                 "status": "em_execucao",
                 "usuario": usuario,
                 "inicio": datetime.now().isoformat()
-            }
-            salvar_dados(dados)
+            }).execute()
             st.rerun()
 
+    # Finalizar execução
     if status.get("usuario") == usuario and status["status"] == "em_execucao":
         if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
-            dados["status_blocos"][id_bloco]["status"] = "executado"
-            dados["historico"].append({
-                "id": id_bloco,
+            supabase.table("status_blocos").update({"status": "executado"}).eq("id_bloco", id_bloco).execute()
+            supabase.table("historico_execucao").insert({
+                "id_bloco": id_bloco,
                 "usuario": usuario,
-                "data": datetime.now().strftime("%d/%m/%Y %H:%M")
-            })
-            salvar_dados(dados)
+                "data_execucao": datetime.now().isoformat()
+            }).execute()
             st.rerun()
 
 # ===============================
 # HISTÓRICO
 # ===============================
 st.sidebar.title("🗓 Histórico")
-if dados["historico"]:
-    st.sidebar.dataframe(pd.DataFrame(dados["historico"]))
+historico_resp = supabase.table("historico_execucao").select("*").execute()
+if historico_resp.data:
+    st.sidebar.dataframe(pd.DataFrame(historico_resp.data))
 else:
     st.sidebar.info("Nenhum subprocesso executado ainda.")

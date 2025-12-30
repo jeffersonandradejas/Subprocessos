@@ -10,61 +10,71 @@ import os
 st.set_page_config("Subprocessos Inteligentes", layout="wide")
 
 # ===============================
-# SUPABASE
+# SUPABASE CLIENT
 # ===============================
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-ITENS_POR_PAGINA = 8
 ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
+ITENS_POR_PAGINA = 8
 
 # ===============================
-# FUNÇÕES DE PERSISTÊNCIA
+# FUNÇÃO DE CARREGAR DADOS
 # ===============================
 def carregar_dados():
     # Subprocessos
-    res = supabase.table("subprocessos").select("*").execute()
-    df = pd.DataFrame(res.data) if res.data else pd.DataFrame()
-    
-    # Status dos blocos
+    res_sub = supabase.table("subprocessos").select("*").execute()
+    subprocessos = res_sub.data or []
+
+    # Status blocos
     res_status = supabase.table("status_blocos").select("*").execute()
-    status_blocos = {row["id_bloco"]: row for row in res_status.data} if res_status.data else {}
-    
+    status_blocos = {s['id_bloco']: s for s in (res_status.data or [])}
+
     # Histórico
     res_hist = supabase.table("historico_execucao").select("*").execute()
-    historico = res_hist.data if res_hist.data else []
-    
-    return df, status_blocos, historico
+    historico = res_hist.data or []
+
+    return subprocessos, status_blocos, historico
 
 # ===============================
 # LOGIN
 # ===============================
 st.sidebar.title("👤 Login")
+
 if "usuario_logado" not in st.session_state:
     st.session_state.usuario_logado = None
 
 if not st.session_state.usuario_logado:
     usuario_input = st.sidebar.text_input("Nome do usuário")
     senha_input = st.sidebar.text_input("Senha", type="password")
+
     if st.sidebar.button("🔐 Entrar"):
-        res = supabase.table("usuarios").select("*").eq("usuario", usuario_input).execute()
-        if not res.data:
+        res_user = supabase.table("usuarios").select("*").eq("usuario", usuario_input).execute()
+        usuario_data = res_user.data[0] if res_user.data else None
+
+        if not usuario_data:
             st.sidebar.error("Usuário não encontrado.")
             st.stop()
-        if res.data[0]["senha"] != senha_input:
+        if usuario_data["senha"] != senha_input:
             st.sidebar.error("Senha incorreta.")
             st.stop()
+
         st.session_state.usuario_logado = usuario_input
         st.rerun()
 else:
     usuario = st.session_state.usuario_logado
+    res_user = supabase.table("usuarios").select("*").eq("usuario", usuario).execute()
+    tipo_usuario = res_user.data[0]["tipo"]
     st.sidebar.success(f"Olá {usuario}!")
+
     if st.sidebar.button("🚪 Sair"):
         st.session_state.usuario_logado = None
         st.rerun()
 
-# Bloqueia sem login
+# ===============================
+# BLOQUEIA ACESSO SEM LOGIN
+# ===============================
 if not st.session_state.usuario_logado:
     st.info("Faça login para continuar.")
     st.stop()
@@ -72,44 +82,44 @@ if not st.session_state.usuario_logado:
 usuario = st.session_state.usuario_logado
 
 # ===============================
-# CARREGA DADOS
+# ADMIN — IMPORTAR CSV
 # ===============================
-df, status_blocos, historico = carregar_dados()
-tem_dados = not df.empty
-
-# ===============================
-# ADMIN – IMPORTAR CSV (UMA VEZ)
-# ===============================
-res_user = supabase.table("usuarios").select("tipo").eq("usuario", usuario).execute()
-tipo_usuario = res_user.data[0]["tipo"]
-
-if tipo_usuario == "admin" and not tem_dados:
+if tipo_usuario == "admin":
     st.sidebar.title("⚙️ Administração")
-    arquivo = st.sidebar.file_uploader("📁 Importar CSV (uma vez)", type="csv")
+    arquivo = st.sidebar.file_uploader("📁 Importar CSV", type="csv")
+
     if arquivo:
         df_csv = pd.read_csv(arquivo)
-        df_csv.columns = df_csv.columns.str.lower().str.strip()
+        df_csv.columns = df_csv.columns.str.strip()
 
-        # 🔥 remove NaN / NaT
+        # Filtra apenas status válidos
+        df_csv = df_csv[df_csv["STATUS"].isin(ACOES_VALIDAS)]
+
+        # Substitui NaN/NaT por None
         df_csv = df_csv.where(pd.notnull(df_csv), None)
 
-        # Insere linha a linha
+        # Insere no Supabase
         for _, row in df_csv.iterrows():
+            dados_dict = {k.lower(): (v if pd.notnull(v) else None) for k, v in row.items()}
             supabase.table("subprocessos").insert({
-                "id_bloco": str(row.get("id")),
-                "fornecedor": row.get("fornecedor"),
-                "pag": str(row.get("pag")),
-                "dados": dict(row)
+                "id_bloco": str(dados_dict.get("id")),
+                "fornecedor": dados_dict.get("fornecedor"),
+                "pag": str(dados_dict.get("pag")),
+                "dados": dados_dict
             }).execute()
-        st.success("✅ CSV importado com sucesso.")
+        st.sidebar.success("CSV importado com sucesso!")
         st.rerun()
 
 # ===============================
-# SE NÃO HOUVER DADOS
+# CARREGAR DADOS ATUALIZADOS
 # ===============================
-if df.empty:
+subprocessos, status_blocos, historico = carregar_dados()
+
+if not subprocessos:
     st.warning("Nenhum subprocesso disponível. Admin deve importar CSV.")
     st.stop()
+
+df = pd.DataFrame(subprocessos)
 
 # ===============================
 # AGRUPAMENTO INTELIGENTE
@@ -128,17 +138,20 @@ total_paginas = max(1, (len(grupos) - 1) // ITENS_POR_PAGINA + 1)
 pagina = st.session_state.get("pagina", 1)
 st.markdown("### 📌 Páginas")
 cols = st.columns(min(total_paginas, 10))
+
 for i in range(1, total_paginas + 1):
     status_pag = []
     for bloco in grupos[(i-1)*ITENS_POR_PAGINA:i*ITENS_POR_PAGINA]:
         idb = str(bloco["id"].iloc[0])
         status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
+
     if status_pag and all(s == "executado" for s in status_pag):
         icone = "🟢"
     elif any(s == "em_execucao" for s in status_pag):
         icone = "🟡"
     else:
         icone = "🔴"
+
     if cols[(i-1) % len(cols)].button(f"{icone} {i}"):
         st.session_state.pagina = i
         st.rerun()
@@ -168,7 +181,6 @@ for bloco in blocos_pagina:
 
     c1, c2 = st.columns(2)
 
-    # Iniciar execução
     if status["status"] == "pendente":
         if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
             supabase.table("status_blocos").upsert({
@@ -179,7 +191,6 @@ for bloco in blocos_pagina:
             }).execute()
             st.rerun()
 
-    # Finalizar execução
     if status.get("usuario") == usuario and status["status"] == "em_execucao":
         if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
             supabase.table("status_blocos").update({

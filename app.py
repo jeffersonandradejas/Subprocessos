@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client
 from datetime import datetime
-import os
 
 # ===============================
 # CONFIGURAÇÃO
@@ -23,18 +22,12 @@ ITENS_POR_PAGINA = 8
 # FUNÇÃO DE CARREGAR DADOS
 # ===============================
 def carregar_dados():
-    # Subprocessos
-    res_sub = supabase.table("subprocessos").select("*").execute()
-    subprocessos = res_sub.data or []
+    subprocessos = supabase.table("subprocessos").select("*").execute().data or []
+    status_blocos_list = supabase.table("status_blocos").select("*").execute().data or []
+    historico = supabase.table("historico_execucao").select("*").execute().data or []
 
-    # Status blocos
-    res_status = supabase.table("status_blocos").select("*").execute()
-    status_blocos = {s['id_bloco']: s for s in (res_status.data or [])}
-
-    # Histórico
-    res_hist = supabase.table("historico_execucao").select("*").execute()
-    historico = res_hist.data or []
-
+    # transforma lista de dict em dict por id_bloco
+    status_blocos = {s['id_bloco']: s for s in status_blocos_list}
     return subprocessos, status_blocos, historico
 
 # ===============================
@@ -72,9 +65,6 @@ else:
         st.session_state.usuario_logado = None
         st.rerun()
 
-# ===============================
-# BLOQUEIA ACESSO SEM LOGIN
-# ===============================
 if not st.session_state.usuario_logado:
     st.info("Faça login para continuar.")
     st.stop()
@@ -91,23 +81,40 @@ if tipo_usuario == "admin":
     if arquivo:
         df_csv = pd.read_csv(arquivo)
         df_csv.columns = df_csv.columns.str.strip()
-
-        # Filtra apenas status válidos
-        df_csv = df_csv[df_csv["STATUS"].isin(ACOES_VALIDAS)]
-
-        # Substitui NaN/NaT por None
+        if "STATUS" in df_csv.columns:
+            df_csv = df_csv[df_csv["STATUS"].isin(ACOES_VALIDAS)]
         df_csv = df_csv.where(pd.notnull(df_csv), None)
 
-        # Insere no Supabase
-        for _, row in df_csv.iterrows():
+        # ===============================
+        # CRIAR BLOCOS INTELIGENTES
+        # ===============================
+        df_csv.sort_values(by=["fornecedor", "PAG"], inplace=True, ignore_index=True)
+        id_bloco_atual = 1
+        blocos = []
+
+        for fornecedor, g1 in df_csv.groupby("fornecedor"):
+            for pag, g2 in g1.groupby("PAG"):
+                g2 = g2.copy()
+                g2["id_bloco"] = id_bloco_atual
+                blocos.append(g2)
+                id_bloco_atual += 1
+
+        df_final = pd.concat(blocos, ignore_index=True)
+
+        # ===============================
+        # INSERIR NO SUPABASE
+        # ===============================
+        for _, row in df_final.iterrows():
             dados_dict = {k.lower(): (v if pd.notnull(v) else None) for k, v in row.items()}
             supabase.table("subprocessos").insert({
-                "id_bloco": str(dados_dict.get("id")),
+                "id_bloco": int(dados_dict.get("id_bloco")),
                 "fornecedor": dados_dict.get("fornecedor"),
-                "pag": str(dados_dict.get("pag")),
-                "dados": dados_dict
+                "pag": int(dados_dict.get("pag")) if dados_dict.get("pag") else None,
+                "dados": dados_dict,
+                "created_at": datetime.now().isoformat()
             }).execute()
-        st.sidebar.success("CSV importado com sucesso!")
+
+        st.sidebar.success("CSV importado e blocos criados com sucesso!")
         st.rerun()
 
 # ===============================
@@ -122,12 +129,12 @@ if not subprocessos:
 df = pd.DataFrame(subprocessos)
 
 # ===============================
-# AGRUPAMENTO INTELIGENTE
+# AGRUPAMENTO INTELIGENTE PARA PAGINAÇÃO
 # ===============================
 grupos = []
 for fornecedor, g1 in df.groupby("fornecedor"):
     for pag, g2 in g1.groupby("pag"):
-        blocos = [g2.iloc[i:i+9] for i in range(0, len(g2), 9)]
+        blocos = [g2.iloc[i:i+ITENS_POR_PAGINA] for i in range(0, len(g2), ITENS_POR_PAGINA)]
         grupos.extend(blocos)
 
 total_paginas = max(1, (len(grupos) - 1) // ITENS_POR_PAGINA + 1)
@@ -142,7 +149,7 @@ cols = st.columns(min(total_paginas, 10))
 for i in range(1, total_paginas + 1):
     status_pag = []
     for bloco in grupos[(i-1)*ITENS_POR_PAGINA:i*ITENS_POR_PAGINA]:
-        idb = str(bloco["id"].iloc[0])
+        idb = int(bloco["id_bloco"].iloc[0])
         status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
 
     if status_pag and all(s == "executado" for s in status_pag):
@@ -166,7 +173,7 @@ st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
 # EXIBIÇÃO DOS BLOCOS
 # ===============================
 for bloco in blocos_pagina:
-    id_bloco = str(bloco["id"].iloc[0])
+    id_bloco = int(bloco["id_bloco"].iloc[0])
     status = status_blocos.get(id_bloco, {"status": "pendente"})
 
     if status["status"] == "executado":

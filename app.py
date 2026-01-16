@@ -4,12 +4,7 @@ from supabase import create_client
 from datetime import datetime
 
 # ===============================
-# CONFIGURAÇÃO
-# ===============================
-st.set_page_config("Subprocessos Inteligentes", layout="wide")
-
-# ===============================
-# SUPABASE CLIENT
+# CONFIGURAÇÃO SUPABASE
 # ===============================
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
@@ -26,7 +21,6 @@ def carregar_dados():
     status_blocos_list = supabase.table("status_blocos").select("*").execute().data or []
     historico = supabase.table("historico_execucao").select("*").execute().data or []
 
-    # transforma lista de dict em dict por id_bloco
     status_blocos = {s['id_bloco']: s for s in status_blocos_list}
     return subprocessos, status_blocos, historico
 
@@ -81,17 +75,38 @@ if tipo_usuario == "admin":
     if arquivo:
         df_csv = pd.read_csv(arquivo)
         df_csv.columns = df_csv.columns.str.strip()
+
+        # Filtra status válidos
         if "STATUS" in df_csv.columns:
             df_csv = df_csv[df_csv["STATUS"].isin(ACOES_VALIDAS)]
         df_csv = df_csv.where(pd.notnull(df_csv), None)
 
         # ===============================
+        # CARREGAR SUBPROCESSOS EXISTENTES
+        # ===============================
+        subprocessos_existentes = pd.DataFrame(supabase.table("subprocessos").select("*").execute().data or [])
+
+        # Se já existir, evita duplicidade
+        if not subprocessos_existentes.empty:
+            # Comparar JSONB dos dados
+            existentes_json = subprocessos_existentes["dados"].apply(lambda x: str(x))
+            df_csv = df_csv[~df_csv.apply(lambda row: str(row.to_dict()) in list(existentes_json), axis=1)]
+            st.info(f"{len(df_csv)} novas linhas serão importadas após remover duplicatas.")
+
+        if df_csv.empty:
+            st.warning("Nenhuma linha nova para importar.")
+            st.stop()
+
+        # ===============================
         # CRIAR BLOCOS INTELIGENTES
         # ===============================
         df_csv.sort_values(by=["fornecedor", "PAG"], inplace=True, ignore_index=True)
-        id_bloco_atual = 1
-        blocos = []
 
+        # Pegar último id_bloco existente no banco
+        ultimo_id_bloco = int(subprocessos_existentes["id_bloco"].max()) if not subprocessos_existentes.empty else 0
+        id_bloco_atual = ultimo_id_bloco + 1
+
+        blocos = []
         for fornecedor, g1 in df_csv.groupby("fornecedor"):
             for pag, g2 in g1.groupby("PAG"):
                 g2 = g2.copy()

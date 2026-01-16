@@ -73,22 +73,29 @@ if tipo_usuario == "admin":
     arquivo = st.sidebar.file_uploader("📁 Importar CSV", type="csv")
 
     if arquivo:
+        # ===============================
+        # LEITURA E NORMALIZAÇÃO DO CSV
+        # ===============================
         df_csv = pd.read_csv(arquivo)
-        df_csv.columns = df_csv.columns.str.strip()
+        # Remove espaços e converte todas as colunas para minúsculas
+        df_csv.columns = df_csv.columns.str.strip().str.lower()
 
-        # Filtra status válidos
-        if "STATUS" in df_csv.columns:
-            df_csv = df_csv[df_csv["STATUS"].isin(ACOES_VALIDAS)]
+        # Filtra apenas status válidos
+        if "status" in df_csv.columns:
+            df_csv = df_csv[df_csv["status"].isin(ACOES_VALIDAS)]
+
+        # Substitui NaN/NaT por None
         df_csv = df_csv.where(pd.notnull(df_csv), None)
 
         # ===============================
         # CARREGAR SUBPROCESSOS EXISTENTES
         # ===============================
-        subprocessos_existentes = pd.DataFrame(supabase.table("subprocessos").select("*").execute().data or [])
+        subprocessos_existentes = pd.DataFrame(
+            supabase.table("subprocessos").select("*").execute().data or []
+        )
 
-        # Se já existir, evita duplicidade
+        # Remove duplicados já existentes
         if not subprocessos_existentes.empty:
-            # Comparar JSONB dos dados
             existentes_json = subprocessos_existentes["dados"].apply(lambda x: str(x))
             df_csv = df_csv[~df_csv.apply(lambda row: str(row.to_dict()) in list(existentes_json), axis=1)]
             st.info(f"{len(df_csv)} novas linhas serão importadas após remover duplicatas.")
@@ -100,7 +107,7 @@ if tipo_usuario == "admin":
         # ===============================
         # CRIAR BLOCOS INTELIGENTES
         # ===============================
-        df_csv.sort_values(by=["fornecedor", "PAG"], inplace=True, ignore_index=True)
+        df_csv.sort_values(by=["fornecedor", "pag"], inplace=True, ignore_index=True)
 
         # Pegar último id_bloco existente no banco
         ultimo_id_bloco = int(subprocessos_existentes["id_bloco"].max()) if not subprocessos_existentes.empty else 0
@@ -108,7 +115,7 @@ if tipo_usuario == "admin":
 
         blocos = []
         for fornecedor, g1 in df_csv.groupby("fornecedor"):
-            for pag, g2 in g1.groupby("PAG"):
+            for pag, g2 in g1.groupby("pag"):
                 g2 = g2.copy()
                 g2["id_bloco"] = id_bloco_atual
                 blocos.append(g2)

@@ -4,8 +4,10 @@ from supabase import create_client
 from datetime import datetime
 
 # ===============================
-# CONFIGURAÇÃO SUPABASE
+# CONFIGURAÇÃO
 # ===============================
+st.set_page_config("Subprocessos Inteligentes", layout="wide")
+
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -13,20 +15,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
 ITENS_POR_PAGINA = 8
 
-# ===============================
-# FUNÇÃO PARA CARREGAR DADOS
-# ===============================
-def carregar_dados():
-    subprocessos = supabase.table("subprocessos").select("*").execute().data or []
-    status_blocos_list = supabase.table("status_blocos").select("*").execute().data or []
-    historico = supabase.table("historico_execucao").select("*").execute().data or []
 
-    status_blocos = {s['id_bloco']: s for s in status_blocos_list}
-    return subprocessos, status_blocos, historico
-
-# ===============================
-# FUNÇÃO PARA TRATAR VALORES NUMÉRICOS (opcional)
-# ===============================
 def parse_int(valor):
     try:
         if valor is None:
@@ -34,6 +23,20 @@ def parse_int(valor):
         return int(float(str(valor).strip()))
     except (ValueError, TypeError):
         return None
+
+
+# ===============================
+# CARREGAR DADOS
+# ===============================
+def carregar_dados():
+    subprocessos = supabase.table("subprocessos").select("*").execute().data or []
+    status_blocos = {
+        s["id_bloco"]: s
+        for s in supabase.table("status_blocos").select("*").execute().data or []
+    }
+    historico = supabase.table("historico_execucao").select("*").execute().data or []
+    return subprocessos, status_blocos, historico
+
 
 # ===============================
 # LOGIN
@@ -44,205 +47,118 @@ if "usuario_logado" not in st.session_state:
     st.session_state.usuario_logado = None
 
 if not st.session_state.usuario_logado:
-    usuario_input = st.sidebar.text_input("Nome do usuário")
+    usuario_input = st.sidebar.text_input("Usuário")
     senha_input = st.sidebar.text_input("Senha", type="password")
 
-    if st.sidebar.button("🔐 Entrar"):
-        res_user = supabase.table("usuarios").select("*").eq("usuario", usuario_input).execute()
-        usuario_data = res_user.data[0] if res_user.data else None
-
-        if not usuario_data:
-            st.sidebar.error("Usuário não encontrado.")
+    if st.sidebar.button("Entrar"):
+        res = supabase.table("usuarios").select("*").eq("usuario", usuario_input).execute()
+        if not res.data or res.data[0]["senha"] != senha_input:
+            st.sidebar.error("Credenciais inválidas")
             st.stop()
-        if usuario_data["senha"] != senha_input:
-            st.sidebar.error("Senha incorreta.")
-            st.stop()
-
         st.session_state.usuario_logado = usuario_input
         st.rerun()
 else:
     usuario = st.session_state.usuario_logado
-    res_user = supabase.table("usuarios").select("*").eq("usuario", usuario).execute()
-    tipo_usuario = res_user.data[0]["tipo"]
-    st.sidebar.success(f"Olá {usuario}!")
-
-    if st.sidebar.button("🚪 Sair"):
+    tipo_usuario = (
+        supabase.table("usuarios")
+        .select("tipo")
+        .eq("usuario", usuario)
+        .execute()
+        .data[0]["tipo"]
+    )
+    st.sidebar.success(f"Olá {usuario}")
+    if st.sidebar.button("Sair"):
         st.session_state.usuario_logado = None
         st.rerun()
 
 if not st.session_state.usuario_logado:
-    st.info("Faça login para continuar.")
     st.stop()
 
-usuario = st.session_state.usuario_logado
 
 # ===============================
 # ADMIN — IMPORTAR CSV
 # ===============================
 if tipo_usuario == "admin":
     st.sidebar.title("⚙️ Administração")
-    arquivo = st.sidebar.file_uploader("📁 Importar CSV", type="csv")
+    arquivo = st.sidebar.file_uploader("Importar CSV", type="csv")
 
     if arquivo:
-        # ===============================
-        # LEITURA E NORMALIZAÇÃO DO CSV
-        # ===============================
-        df_csv = pd.read_csv(arquivo)
-        df_csv.columns = df_csv.columns.str.strip().str.lower()  # padroniza colunas minúsculas
+        df = pd.read_csv(arquivo)
+        df.columns = df.columns.str.strip().str.lower()
+        df = df[df["status"].isin(ACOES_VALIDAS)]
+        df = df.where(pd.notnull(df), None)
 
-        # Filtra apenas status válidos
-        if "status" in df_csv.columns:
-            df_csv = df_csv[df_csv["status"].isin(ACOES_VALIDAS)]
-
-        df_csv = df_csv.where(pd.notnull(df_csv), None)  # substitui NaN por None
-
-        # ===============================
-        # CARREGAR SUBPROCESSOS EXISTENTES
-        # ===============================
-        subprocessos_existentes = pd.DataFrame(
-            supabase.table("subprocessos").select("*").execute().data or []
+        existentes = pd.DataFrame(
+            supabase.table("subprocessos").select("dados").execute().data or []
         )
 
-        # Remove duplicados já existentes
-        if not subprocessos_existentes.empty:
-            existentes_json = subprocessos_existentes["dados"].apply(lambda x: str(x))
-            df_csv = df_csv[~df_csv.apply(lambda row: str(row.to_dict()) in list(existentes_json), axis=1)]
-            st.info(f"{len(df_csv)} novas linhas serão importadas após remover duplicatas.")
+        if not existentes.empty:
+            existentes_set = set(existentes["dados"].astype(str))
+            df = df[~df.apply(lambda r: str(r.to_dict()) in existentes_set, axis=1)]
 
-        if df_csv.empty:
+        if df.empty:
             st.warning("Nenhuma linha nova para importar.")
             st.stop()
 
-        # ===============================
-        # CRIAR BLOCOS INTELIGENTES
-        # ===============================
-        df_csv.sort_values(by=["fornecedor", "pag"], inplace=True, ignore_index=True)
+        df.sort_values(by=["fornecedor"], inplace=True)
 
-        # Pegar último id_bloco existente no banco
-        ultimo_id_bloco = int(subprocessos_existentes["id_bloco"].max()) if not subprocessos_existentes.empty else 0
-        id_bloco_atual = ultimo_id_bloco + 1
+        ultimo = supabase.table("subprocessos").select("id_bloco").order("id_bloco", desc=True).limit(1).execute().data
+        id_bloco_atual = ultimo[0]["id_bloco"] + 1 if ultimo else 1
 
-        blocos = []
-        for fornecedor, g1 in df_csv.groupby("fornecedor"):
-            for pag, g2 in g1.groupby("pag"):
-                g2 = g2.copy()
-                g2["id_bloco"] = id_bloco_atual
-                blocos.append(g2)
-                id_bloco_atual += 1
-
-        df_final = pd.concat(blocos, ignore_index=True)
-
-        # ===============================
-        # INSERIR NO SUPABASE
-        # ===============================
-        for _, row in df_final.iterrows():
-            dados_dict = {k.lower(): (v if pd.notnull(v) else None) for k, v in row.items()}
-            try:
+        for fornecedor, grupo in df.groupby("fornecedor"):
+            grupo = grupo.copy()
+            grupo["id_bloco"] = id_bloco_atual
+            for _, row in grupo.iterrows():
                 supabase.table("subprocessos").insert({
-                    "id_bloco": int(dados_dict.get("id_bloco")),
-                    "fornecedor": dados_dict.get("fornecedor"),
-                    "pag": dados_dict.get("pag"),  # <-- mantém como texto
-                    "dados": dados_dict,
-                    "created_at": datetime.now().isoformat()
+                    "id_bloco": id_bloco_atual,
+                    "fornecedor": row.get("fornecedor"),
+                    "pag": row.get("pag"),
+                    "dados": row.to_dict()
                 }).execute()
-            except Exception as e:
-                st.warning(f"Erro ao inserir linha {dados_dict}: {e}")
+            id_bloco_atual += 1
 
-        st.sidebar.success("CSV importado e blocos criados com sucesso!")
+        st.sidebar.success("CSV importado com sucesso!")
         st.rerun()
 
+
 # ===============================
-# CARREGAR DADOS ATUALIZADOS
+# EXIBIÇÃO PRINCIPAL
 # ===============================
 subprocessos, status_blocos, historico = carregar_dados()
-
-if not subprocessos:
-    st.warning("Nenhum subprocesso disponível. Admin deve importar CSV.")
-    st.stop()
-
 df = pd.DataFrame(subprocessos)
 
-# ===============================
-# AGRUPAMENTO INTELIGENTE PARA PAGINAÇÃO
-# ===============================
-grupos = []
-for fornecedor, g1 in df.groupby("fornecedor"):
-    for pag, g2 in g1.groupby("pag"):
-        blocos = [g2.iloc[i:i+ITENS_POR_PAGINA] for i in range(0, len(g2), ITENS_POR_PAGINA)]
-        grupos.extend(blocos)
+if df.empty:
+    st.warning("Nenhum subprocesso disponível.")
+    st.stop()
 
-total_paginas = max(1, (len(grupos) - 1) // ITENS_POR_PAGINA + 1)
+# ====== LÓGICA INTELIGENTE ======
+if df["fornecedor"].duplicated().any():
+    modo = "fornecedor"
+    grupos = dict(tuple(df.groupby("fornecedor")))
+else:
+    modo = "pag"
+    grupos = dict(tuple(df.groupby("pag")))
 
-# ===============================
-# PAGINAÇÃO
-# ===============================
+lista_grupos = list(grupos.items())
+total_paginas = max(1, (len(lista_grupos) - 1) // ITENS_POR_PAGINA + 1)
+
 pagina = st.session_state.get("pagina", 1)
 st.markdown("### 📌 Páginas")
 cols = st.columns(min(total_paginas, 10))
 
 for i in range(1, total_paginas + 1):
-    status_pag = []
-    for bloco in grupos[(i-1)*ITENS_POR_PAGINA:i*ITENS_POR_PAGINA]:
-        idb = int(bloco["id_bloco"].iloc[0])
-        status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
-
-    if status_pag and all(s == "executado" for s in status_pag):
-        icone = "🟢"
-    elif any(s == "em_execucao" for s in status_pag):
-        icone = "🟡"
-    else:
-        icone = "🔴"
-
-    if cols[(i-1) % len(cols)].button(f"{icone} {i}"):
+    if cols[(i - 1) % len(cols)].button(str(i)):
         st.session_state.pagina = i
         st.rerun()
 
 inicio = (pagina - 1) * ITENS_POR_PAGINA
 fim = inicio + ITENS_POR_PAGINA
-blocos_pagina = grupos[inicio:fim]
 
 st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
 
-# ===============================
-# EXIBIÇÃO DOS BLOCOS
-# ===============================
-for bloco in blocos_pagina:
-    id_bloco = int(bloco["id_bloco"].iloc[0])
-    status = status_blocos.get(id_bloco, {"status": "pendente"})
-
-    if status["status"] == "executado":
-        icone = "🟢"
-    elif status["status"] == "em_execucao":
-        icone = "🟡" if status.get("usuario") == usuario else "🔒"
-    else:
-        icone = "🔴"
-
-    st.subheader(f"{icone} Subprocesso {id_bloco}")
+for chave, bloco in lista_grupos[inicio:fim]:
+    st.subheader(f"{modo.upper()}: {chave}")
     st.dataframe(bloco, use_container_width=True)
-
-    c1, c2 = st.columns(2)
-
-    if status["status"] == "pendente":
-        if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
-            supabase.table("status_blocos").upsert({
-                "id_bloco": id_bloco,
-                "status": "em_execucao",
-                "usuario": usuario,
-                "inicio": datetime.now().isoformat()
-            }).execute()
-            st.rerun()
-
-    if status.get("usuario") == usuario and status["status"] == "em_execucao":
-        if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
-            supabase.table("status_blocos").update({
-                "status": "executado"
-            }).eq("id_bloco", id_bloco).execute()
-            supabase.table("historico_execucao").insert({
-                "id_bloco": id_bloco,
-                "usuario": usuario,
-                "data_execucao": datetime.now().isoformat()
-            }).execute()
-            st.rerun()
 
 # ===============================
 # HISTÓRICO
@@ -250,5 +166,3 @@ for bloco in blocos_pagina:
 st.sidebar.title("🗓 Histórico")
 if historico:
     st.sidebar.dataframe(pd.DataFrame(historico))
-else:
-    st.sidebar.info("Nenhum subprocesso executado ainda.")

@@ -14,7 +14,7 @@ ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
 ITENS_POR_PAGINA = 8
 
 # ===============================
-# FUNÇÃO PARA PARSE INT SEGURO
+# FUNÇÃO PARA CONVERTER INTEIROS
 # ===============================
 def parse_int(valor):
     try:
@@ -25,14 +25,18 @@ def parse_int(valor):
         return None
 
 # ===============================
-# FUNÇÃO DE CARREGAR DADOS
+# FUNÇÃO DE CARREGAR DADOS DO BANCO
 # ===============================
 def carregar_dados():
     subprocessos = supabase.table("subprocessos").select("*").execute().data or []
     status_blocos_list = supabase.table("status_blocos").select("*").execute().data or []
     historico = supabase.table("historico_execucao").select("*").execute().data or []
 
-    status_blocos = {int(s['id_bloco']): s for s in status_blocos_list}
+    status_blocos = {}
+    for s in status_blocos_list:
+        idb = s["id_bloco"]
+        status_blocos[int(idb)] = s
+
     return subprocessos, status_blocos, historico
 
 # ===============================
@@ -88,11 +92,13 @@ if tipo_usuario == "admin":
         # LEITURA E NORMALIZAÇÃO DO CSV
         # ===============================
         df_csv = pd.read_csv(arquivo)
+
         # Remove espaços e converte todas as colunas para minúsculas
         df_csv.columns = df_csv.columns.str.strip().str.lower()
 
-        # Filtra apenas status válidos
+        # Normaliza os status para maiúsculo
         if "status" in df_csv.columns:
+            df_csv["status"] = df_csv["status"].str.strip().str.upper()
             df_csv = df_csv[df_csv["status"].isin(ACOES_VALIDAS)]
 
         # Substitui NaN/NaT por None
@@ -104,9 +110,8 @@ if tipo_usuario == "admin":
         subprocessos_existentes = pd.DataFrame(
             supabase.table("subprocessos").select("*").execute().data or []
         )
-
-        # Remove duplicados já existentes
         if not subprocessos_existentes.empty:
+            subprocessos_existentes.columns = subprocessos_existentes.columns.str.strip().str.lower()
             existentes_json = subprocessos_existentes["dados"].apply(lambda x: str(x))
             df_csv = df_csv[~df_csv.apply(lambda row: str(row.to_dict()) in list(existentes_json), axis=1)]
             st.info(f"{len(df_csv)} novas linhas serão importadas após remover duplicatas.")
@@ -118,10 +123,8 @@ if tipo_usuario == "admin":
         # ===============================
         # CRIAR BLOCOS INTELIGENTES
         # ===============================
-        # Ordenar CSV
         df_csv.sort_values(by=["fornecedor", "pag"], inplace=True, ignore_index=True)
 
-        # Pegar último id_bloco existente no banco
         ultimo_id_bloco = int(subprocessos_existentes["id_bloco"].max()) if not subprocessos_existentes.empty else 0
         id_bloco_atual = ultimo_id_bloco + 1
 
@@ -144,7 +147,7 @@ if tipo_usuario == "admin":
                 supabase.table("subprocessos").insert({
                     "id_bloco": int(dados_dict.get("id_bloco")),
                     "fornecedor": dados_dict.get("fornecedor"),
-                    "pag": parse_int(dados_dict.get("pag")),
+                    "pag": dados_dict.get("pag"),
                     "dados": dados_dict,
                     "created_at": datetime.now().isoformat()
                 }).execute()
@@ -158,15 +161,18 @@ if tipo_usuario == "admin":
 # CARREGAR DADOS ATUALIZADOS
 # ===============================
 subprocessos, status_blocos, historico = carregar_dados()
-
 if not subprocessos:
     st.warning("Nenhum subprocesso disponível. Admin deve importar CSV.")
     st.stop()
 
 df = pd.DataFrame(subprocessos)
+df.columns = df.columns.str.strip().str.lower()
+df["status"] = df["dados"].apply(lambda x: x.get("status", "").strip().upper() if x else "")
 
-# Normalizar colunas para o agrupamento
-df.columns = df.columns.str.lower()
+# Debug: mostrar linhas carregadas
+st.write("Colunas do DataFrame:", df.columns.tolist())
+st.write("Status encontrados:", df["status"].unique())
+st.write("Número de subprocessos carregados:", len(df))
 
 # ===============================
 # AGRUPAMENTO INTELIGENTE PARA PAGINAÇÃO

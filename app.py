@@ -4,6 +4,17 @@ from supabase import create_client
 from datetime import datetime
 
 # ===============================
+# FUNÇÕES UTILITÁRIAS
+# ===============================
+def parse_int(valor):
+    try:
+        if valor is None:
+            return None
+        return int(float(str(valor).strip()))
+    except (ValueError, TypeError):
+        return None
+
+# ===============================
 # CONFIGURAÇÃO SUPABASE
 # ===============================
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -21,7 +32,7 @@ def carregar_dados():
     status_blocos_list = supabase.table("status_blocos").select("*").execute().data or []
     historico = supabase.table("historico_execucao").select("*").execute().data or []
 
-    status_blocos = {s['id_bloco']: s for s in status_blocos_list}
+    status_blocos = {s["id_bloco"]: s for s in status_blocos_list}
     return subprocessos, status_blocos, historico
 
 # ===============================
@@ -77,14 +88,11 @@ if tipo_usuario == "admin":
         # LEITURA E NORMALIZAÇÃO DO CSV
         # ===============================
         df_csv = pd.read_csv(arquivo)
-        # Remove espaços e converte todas as colunas para minúsculas
         df_csv.columns = df_csv.columns.str.strip().str.lower()
 
-        # Filtra apenas status válidos
         if "status" in df_csv.columns:
             df_csv = df_csv[df_csv["status"].isin(ACOES_VALIDAS)]
 
-        # Substitui NaN/NaT por None
         df_csv = df_csv.where(pd.notnull(df_csv), None)
 
         # ===============================
@@ -94,10 +102,11 @@ if tipo_usuario == "admin":
             supabase.table("subprocessos").select("*").execute().data or []
         )
 
-        # Remove duplicados já existentes
         if not subprocessos_existentes.empty:
             existentes_json = subprocessos_existentes["dados"].apply(lambda x: str(x))
-            df_csv = df_csv[~df_csv.apply(lambda row: str(row.to_dict()) in list(existentes_json), axis=1)]
+            df_csv = df_csv[
+                ~df_csv.apply(lambda row: str(row.to_dict()) in list(existentes_json), axis=1)
+            ]
             st.info(f"{len(df_csv)} novas linhas serão importadas após remover duplicatas.")
 
         if df_csv.empty:
@@ -109,8 +118,11 @@ if tipo_usuario == "admin":
         # ===============================
         df_csv.sort_values(by=["fornecedor", "pag"], inplace=True, ignore_index=True)
 
-        # Pegar último id_bloco existente no banco
-        ultimo_id_bloco = int(subprocessos_existentes["id_bloco"].max()) if not subprocessos_existentes.empty else 0
+        ultimo_id_bloco = (
+            int(subprocessos_existentes["id_bloco"].max())
+            if not subprocessos_existentes.empty
+            else 0
+        )
         id_bloco_atual = ultimo_id_bloco + 1
 
         blocos = []
@@ -128,6 +140,7 @@ if tipo_usuario == "admin":
         # ===============================
         for _, row in df_final.iterrows():
             dados_dict = {k.lower(): (v if pd.notnull(v) else None) for k, v in row.items()}
+
             supabase.table("subprocessos").insert({
                 "id_bloco": int(dados_dict.get("id_bloco")),
                 "fornecedor": dados_dict.get("fornecedor"),
@@ -151,12 +164,12 @@ if not subprocessos:
 df = pd.DataFrame(subprocessos)
 
 # ===============================
-# AGRUPAMENTO INTELIGENTE PARA PAGINAÇÃO
+# AGRUPAMENTO INTELIGENTE
 # ===============================
 grupos = []
 for fornecedor, g1 in df.groupby("fornecedor"):
     for pag, g2 in g1.groupby("pag"):
-        blocos = [g2.iloc[i:i+ITENS_POR_PAGINA] for i in range(0, len(g2), ITENS_POR_PAGINA)]
+        blocos = [g2.iloc[i:i + ITENS_POR_PAGINA] for i in range(0, len(g2), ITENS_POR_PAGINA)]
         grupos.extend(blocos)
 
 total_paginas = max(1, (len(grupos) - 1) // ITENS_POR_PAGINA + 1)
@@ -170,7 +183,7 @@ cols = st.columns(min(total_paginas, 10))
 
 for i in range(1, total_paginas + 1):
     status_pag = []
-    for bloco in grupos[(i-1)*ITENS_POR_PAGINA:i*ITENS_POR_PAGINA]:
+    for bloco in grupos[(i - 1) * ITENS_POR_PAGINA:i * ITENS_POR_PAGINA]:
         idb = int(bloco["id_bloco"].iloc[0])
         status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
 
@@ -181,7 +194,7 @@ for i in range(1, total_paginas + 1):
     else:
         icone = "🔴"
 
-    if cols[(i-1) % len(cols)].button(f"{icone} {i}"):
+    if cols[(i - 1) % len(cols)].button(f"{icone} {i}"):
         st.session_state.pagina = i
         st.rerun()
 
@@ -225,6 +238,7 @@ for bloco in blocos_pagina:
             supabase.table("status_blocos").update({
                 "status": "executado"
             }).eq("id_bloco", id_bloco).execute()
+
             supabase.table("historico_execucao").insert({
                 "id_bloco": id_bloco,
                 "usuario": usuario,

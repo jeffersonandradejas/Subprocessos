@@ -14,7 +14,7 @@ ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
 ITENS_POR_PAGINA = 8
 
 # ===============================
-# FUNÇÃO AUXILIAR
+# FUNÇÃO PARA PARSE INT SEGURO
 # ===============================
 def parse_int(valor):
     try:
@@ -32,7 +32,7 @@ def carregar_dados():
     status_blocos_list = supabase.table("status_blocos").select("*").execute().data or []
     historico = supabase.table("historico_execucao").select("*").execute().data or []
 
-    status_blocos = {int(s['id_bloco']): s for s in status_blocos_list if s.get('id_bloco') is not None}
+    status_blocos = {int(s['id_bloco']): s for s in status_blocos_list}
     return subprocessos, status_blocos, historico
 
 # ===============================
@@ -88,11 +88,14 @@ if tipo_usuario == "admin":
         # LEITURA E NORMALIZAÇÃO DO CSV
         # ===============================
         df_csv = pd.read_csv(arquivo)
-        df_csv.columns = df_csv.columns.str.strip().str.lower()  # normaliza
+        # Remove espaços e converte todas as colunas para minúsculas
+        df_csv.columns = df_csv.columns.str.strip().str.lower()
 
+        # Filtra apenas status válidos
         if "status" in df_csv.columns:
             df_csv = df_csv[df_csv["status"].isin(ACOES_VALIDAS)]
 
+        # Substitui NaN/NaT por None
         df_csv = df_csv.where(pd.notnull(df_csv), None)
 
         # ===============================
@@ -102,7 +105,7 @@ if tipo_usuario == "admin":
             supabase.table("subprocessos").select("*").execute().data or []
         )
 
-        # Remove duplicados
+        # Remove duplicados já existentes
         if not subprocessos_existentes.empty:
             existentes_json = subprocessos_existentes["dados"].apply(lambda x: str(x))
             df_csv = df_csv[~df_csv.apply(lambda row: str(row.to_dict()) in list(existentes_json), axis=1)]
@@ -115,12 +118,10 @@ if tipo_usuario == "admin":
         # ===============================
         # CRIAR BLOCOS INTELIGENTES
         # ===============================
-        if "fornecedor" not in df_csv.columns or "pag" not in df_csv.columns:
-            st.error("CSV precisa ter colunas 'fornecedor' e 'pag'.")
-            st.stop()
-
+        # Ordenar CSV
         df_csv.sort_values(by=["fornecedor", "pag"], inplace=True, ignore_index=True)
 
+        # Pegar último id_bloco existente no banco
         ultimo_id_bloco = int(subprocessos_existentes["id_bloco"].max()) if not subprocessos_existentes.empty else 0
         id_bloco_atual = ultimo_id_bloco + 1
 
@@ -139,16 +140,9 @@ if tipo_usuario == "admin":
         # ===============================
         for _, row in df_final.iterrows():
             dados_dict = {k.lower(): (v if pd.notnull(v) else None) for k, v in row.items()}
-
-            # Verifica id_bloco e dados válidos
-            id_bloco_val = dados_dict.get("id_bloco")
-            if id_bloco_val is None:
-                st.error(f"Erro: id_bloco ausente na linha: {dados_dict}")
-                continue
-
             try:
                 supabase.table("subprocessos").insert({
-                    "id_bloco": int(id_bloco_val),
+                    "id_bloco": int(dados_dict.get("id_bloco")),
                     "fornecedor": dados_dict.get("fornecedor"),
                     "pag": parse_int(dados_dict.get("pag")),
                     "dados": dados_dict,
@@ -156,7 +150,6 @@ if tipo_usuario == "admin":
                 }).execute()
             except Exception as e:
                 st.error(f"Erro ao inserir linha {dados_dict}: {e}")
-                continue
 
         st.sidebar.success("CSV importado e blocos criados com sucesso!")
         st.rerun()
@@ -171,6 +164,9 @@ if not subprocessos:
     st.stop()
 
 df = pd.DataFrame(subprocessos)
+
+# Normalizar colunas para o agrupamento
+df.columns = df.columns.str.lower()
 
 # ===============================
 # AGRUPAMENTO INTELIGENTE PARA PAGINAÇÃO

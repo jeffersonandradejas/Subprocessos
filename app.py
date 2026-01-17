@@ -14,18 +14,7 @@ ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
 ITENS_POR_PAGINA = 8
 
 # ===============================
-# FUNÇÃO DE PARSE INT (mantida)
-# ===============================
-def parse_int(valor):
-    try:
-        if valor is None:
-            return None
-        return int(float(str(valor).strip()))
-    except (ValueError, TypeError):
-        return None
-
-# ===============================
-# FUNÇÃO DE CARREGAR DADOS
+# FUNÇÃO PARA CARREGAR DADOS
 # ===============================
 def carregar_dados():
     subprocessos = supabase.table("subprocessos").select("*").execute().data or []
@@ -34,6 +23,17 @@ def carregar_dados():
 
     status_blocos = {s['id_bloco']: s for s in status_blocos_list}
     return subprocessos, status_blocos, historico
+
+# ===============================
+# FUNÇÃO PARA TRATAR VALORES NUMÉRICOS (opcional)
+# ===============================
+def parse_int(valor):
+    try:
+        if valor is None:
+            return None
+        return int(float(str(valor).strip()))
+    except (ValueError, TypeError):
+        return None
 
 # ===============================
 # LOGIN
@@ -84,15 +84,21 @@ if tipo_usuario == "admin":
     arquivo = st.sidebar.file_uploader("📁 Importar CSV", type="csv")
 
     if arquivo:
+        # ===============================
+        # LEITURA E NORMALIZAÇÃO DO CSV
+        # ===============================
         df_csv = pd.read_csv(arquivo)
-        df_csv.columns = df_csv.columns.str.strip().str.lower()
+        df_csv.columns = df_csv.columns.str.strip().str.lower()  # padroniza colunas minúsculas
 
         # Filtra apenas status válidos
         if "status" in df_csv.columns:
             df_csv = df_csv[df_csv["status"].isin(ACOES_VALIDAS)]
 
-        df_csv = df_csv.where(pd.notnull(df_csv), None)
+        df_csv = df_csv.where(pd.notnull(df_csv), None)  # substitui NaN por None
 
+        # ===============================
+        # CARREGAR SUBPROCESSOS EXISTENTES
+        # ===============================
         subprocessos_existentes = pd.DataFrame(
             supabase.table("subprocessos").select("*").execute().data or []
         )
@@ -110,17 +116,19 @@ if tipo_usuario == "admin":
         # ===============================
         # CRIAR BLOCOS INTELIGENTES
         # ===============================
-        df_csv.sort_values(by=["fornecedor"], inplace=True, ignore_index=True)
+        df_csv.sort_values(by=["fornecedor", "pag"], inplace=True, ignore_index=True)
 
+        # Pegar último id_bloco existente no banco
         ultimo_id_bloco = int(subprocessos_existentes["id_bloco"].max()) if not subprocessos_existentes.empty else 0
         id_bloco_atual = ultimo_id_bloco + 1
 
         blocos = []
         for fornecedor, g1 in df_csv.groupby("fornecedor"):
-            g1 = g1.copy()
-            g1["id_bloco"] = id_bloco_atual
-            blocos.append(g1)
-            id_bloco_atual += 1
+            for pag, g2 in g1.groupby("pag"):
+                g2 = g2.copy()
+                g2["id_bloco"] = id_bloco_atual
+                blocos.append(g2)
+                id_bloco_atual += 1
 
         df_final = pd.concat(blocos, ignore_index=True)
 
@@ -133,12 +141,12 @@ if tipo_usuario == "admin":
                 supabase.table("subprocessos").insert({
                     "id_bloco": int(dados_dict.get("id_bloco")),
                     "fornecedor": dados_dict.get("fornecedor"),
-                    "pag": dados_dict.get("pag"),  # <-- agora gravando como texto
+                    "pag": dados_dict.get("pag"),  # <-- mantém como texto
                     "dados": dados_dict,
                     "created_at": datetime.now().isoformat()
                 }).execute()
             except Exception as e:
-                st.error(f"Erro ao inserir linha {dados_dict}: {e}")
+                st.warning(f"Erro ao inserir linha {dados_dict}: {e}")
 
         st.sidebar.success("CSV importado e blocos criados com sucesso!")
         st.rerun()
@@ -148,9 +156,6 @@ if tipo_usuario == "admin":
 # ===============================
 subprocessos, status_blocos, historico = carregar_dados()
 
-st.write("Colunas do DataFrame:", list(subprocessos[0].keys()) if subprocessos else [])
-st.write("Número de subprocessos carregados:", len(subprocessos))
-
 if not subprocessos:
     st.warning("Nenhum subprocesso disponível. Admin deve importar CSV.")
     st.stop()
@@ -158,14 +163,15 @@ if not subprocessos:
 df = pd.DataFrame(subprocessos)
 
 # ===============================
-# AGRUPAMENTO SIMPLIFICADO PARA PAGINAÇÃO
+# AGRUPAMENTO INTELIGENTE PARA PAGINAÇÃO
 # ===============================
 grupos = []
-for id_bloco, g in df.groupby("id_bloco"):
-    blocos = [g.iloc[i:i+ITENS_POR_PAGINA] for i in range(0, len(g), ITENS_POR_PAGINA)]
-    grupos.extend(blocos)
+for fornecedor, g1 in df.groupby("fornecedor"):
+    for pag, g2 in g1.groupby("pag"):
+        blocos = [g2.iloc[i:i+ITENS_POR_PAGINA] for i in range(0, len(g2), ITENS_POR_PAGINA)]
+        grupos.extend(blocos)
 
-total_paginas = max(1, len(grupos))
+total_paginas = max(1, (len(grupos) - 1) // ITENS_POR_PAGINA + 1)
 
 # ===============================
 # PAGINAÇÃO
@@ -175,13 +181,25 @@ st.markdown("### 📌 Páginas")
 cols = st.columns(min(total_paginas, 10))
 
 for i in range(1, total_paginas + 1):
-    if cols[(i-1) % len(cols)].button(f"{i}"):
+    status_pag = []
+    for bloco in grupos[(i-1)*ITENS_POR_PAGINA:i*ITENS_POR_PAGINA]:
+        idb = int(bloco["id_bloco"].iloc[0])
+        status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
+
+    if status_pag and all(s == "executado" for s in status_pag):
+        icone = "🟢"
+    elif any(s == "em_execucao" for s in status_pag):
+        icone = "🟡"
+    else:
+        icone = "🔴"
+
+    if cols[(i-1) % len(cols)].button(f"{icone} {i}"):
         st.session_state.pagina = i
         st.rerun()
 
-inicio = pagina - 1
-fim = inicio
-blocos_pagina = [grupos[inicio]] if grupos else []
+inicio = (pagina - 1) * ITENS_POR_PAGINA
+fim = inicio + ITENS_POR_PAGINA
+blocos_pagina = grupos[inicio:fim]
 
 st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
 

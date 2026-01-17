@@ -14,7 +14,7 @@ ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
 ITENS_POR_PAGINA = 8
 
 # ===============================
-# FUNÇÃO PARA CONVERTER INTEIROS
+# FUNÇÃO DE PARSE INT (mantida)
 # ===============================
 def parse_int(valor):
     try:
@@ -25,18 +25,14 @@ def parse_int(valor):
         return None
 
 # ===============================
-# FUNÇÃO DE CARREGAR DADOS DO BANCO
+# FUNÇÃO DE CARREGAR DADOS
 # ===============================
 def carregar_dados():
     subprocessos = supabase.table("subprocessos").select("*").execute().data or []
     status_blocos_list = supabase.table("status_blocos").select("*").execute().data or []
     historico = supabase.table("historico_execucao").select("*").execute().data or []
 
-    status_blocos = {}
-    for s in status_blocos_list:
-        idb = s["id_bloco"]
-        status_blocos[int(idb)] = s
-
+    status_blocos = {s['id_bloco']: s for s in status_blocos_list}
     return subprocessos, status_blocos, historico
 
 # ===============================
@@ -88,30 +84,21 @@ if tipo_usuario == "admin":
     arquivo = st.sidebar.file_uploader("📁 Importar CSV", type="csv")
 
     if arquivo:
-        # ===============================
-        # LEITURA E NORMALIZAÇÃO DO CSV
-        # ===============================
         df_csv = pd.read_csv(arquivo)
-
-        # Remove espaços e converte todas as colunas para minúsculas
         df_csv.columns = df_csv.columns.str.strip().str.lower()
 
-        # Normaliza os status para maiúsculo
+        # Filtra apenas status válidos
         if "status" in df_csv.columns:
-            df_csv["status"] = df_csv["status"].str.strip().str.upper()
             df_csv = df_csv[df_csv["status"].isin(ACOES_VALIDAS)]
 
-        # Substitui NaN/NaT por None
         df_csv = df_csv.where(pd.notnull(df_csv), None)
 
-        # ===============================
-        # CARREGAR SUBPROCESSOS EXISTENTES
-        # ===============================
         subprocessos_existentes = pd.DataFrame(
             supabase.table("subprocessos").select("*").execute().data or []
         )
+
+        # Remove duplicados já existentes
         if not subprocessos_existentes.empty:
-            subprocessos_existentes.columns = subprocessos_existentes.columns.str.strip().str.lower()
             existentes_json = subprocessos_existentes["dados"].apply(lambda x: str(x))
             df_csv = df_csv[~df_csv.apply(lambda row: str(row.to_dict()) in list(existentes_json), axis=1)]
             st.info(f"{len(df_csv)} novas linhas serão importadas após remover duplicatas.")
@@ -123,18 +110,17 @@ if tipo_usuario == "admin":
         # ===============================
         # CRIAR BLOCOS INTELIGENTES
         # ===============================
-        df_csv.sort_values(by=["fornecedor", "pag"], inplace=True, ignore_index=True)
+        df_csv.sort_values(by=["fornecedor"], inplace=True, ignore_index=True)
 
         ultimo_id_bloco = int(subprocessos_existentes["id_bloco"].max()) if not subprocessos_existentes.empty else 0
         id_bloco_atual = ultimo_id_bloco + 1
 
         blocos = []
         for fornecedor, g1 in df_csv.groupby("fornecedor"):
-            for pag, g2 in g1.groupby("pag"):
-                g2 = g2.copy()
-                g2["id_bloco"] = id_bloco_atual
-                blocos.append(g2)
-                id_bloco_atual += 1
+            g1 = g1.copy()
+            g1["id_bloco"] = id_bloco_atual
+            blocos.append(g1)
+            id_bloco_atual += 1
 
         df_final = pd.concat(blocos, ignore_index=True)
 
@@ -147,7 +133,7 @@ if tipo_usuario == "admin":
                 supabase.table("subprocessos").insert({
                     "id_bloco": int(dados_dict.get("id_bloco")),
                     "fornecedor": dados_dict.get("fornecedor"),
-                    "pag": dados_dict.get("pag"),
+                    "pag": dados_dict.get("pag"),  # <-- agora gravando como texto
                     "dados": dados_dict,
                     "created_at": datetime.now().isoformat()
                 }).execute()
@@ -161,29 +147,25 @@ if tipo_usuario == "admin":
 # CARREGAR DADOS ATUALIZADOS
 # ===============================
 subprocessos, status_blocos, historico = carregar_dados()
+
+st.write("Colunas do DataFrame:", list(subprocessos[0].keys()) if subprocessos else [])
+st.write("Número de subprocessos carregados:", len(subprocessos))
+
 if not subprocessos:
     st.warning("Nenhum subprocesso disponível. Admin deve importar CSV.")
     st.stop()
 
 df = pd.DataFrame(subprocessos)
-df.columns = df.columns.str.strip().str.lower()
-df["status"] = df["dados"].apply(lambda x: x.get("status", "").strip().upper() if x else "")
-
-# Debug: mostrar linhas carregadas
-st.write("Colunas do DataFrame:", df.columns.tolist())
-st.write("Status encontrados:", df["status"].unique())
-st.write("Número de subprocessos carregados:", len(df))
 
 # ===============================
-# AGRUPAMENTO INTELIGENTE PARA PAGINAÇÃO
+# AGRUPAMENTO SIMPLIFICADO PARA PAGINAÇÃO
 # ===============================
 grupos = []
-for fornecedor, g1 in df.groupby("fornecedor"):
-    for pag, g2 in g1.groupby("pag"):
-        blocos = [g2.iloc[i:i+ITENS_POR_PAGINA] for i in range(0, len(g2), ITENS_POR_PAGINA)]
-        grupos.extend(blocos)
+for id_bloco, g in df.groupby("id_bloco"):
+    blocos = [g.iloc[i:i+ITENS_POR_PAGINA] for i in range(0, len(g), ITENS_POR_PAGINA)]
+    grupos.extend(blocos)
 
-total_paginas = max(1, (len(grupos) - 1) // ITENS_POR_PAGINA + 1)
+total_paginas = max(1, len(grupos))
 
 # ===============================
 # PAGINAÇÃO
@@ -193,25 +175,13 @@ st.markdown("### 📌 Páginas")
 cols = st.columns(min(total_paginas, 10))
 
 for i in range(1, total_paginas + 1):
-    status_pag = []
-    for bloco in grupos[(i-1)*ITENS_POR_PAGINA:i*ITENS_POR_PAGINA]:
-        idb = int(bloco["id_bloco"].iloc[0])
-        status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
-
-    if status_pag and all(s == "executado" for s in status_pag):
-        icone = "🟢"
-    elif any(s == "em_execucao" for s in status_pag):
-        icone = "🟡"
-    else:
-        icone = "🔴"
-
-    if cols[(i-1) % len(cols)].button(f"{icone} {i}"):
+    if cols[(i-1) % len(cols)].button(f"{i}"):
         st.session_state.pagina = i
         st.rerun()
 
-inicio = (pagina - 1) * ITENS_POR_PAGINA
-fim = inicio + ITENS_POR_PAGINA
-blocos_pagina = grupos[inicio:fim]
+inicio = pagina - 1
+fim = inicio
+blocos_pagina = [grupos[inicio]] if grupos else []
 
 st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
 

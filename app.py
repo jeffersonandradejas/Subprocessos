@@ -131,7 +131,7 @@ if tipo_usuario == "admin":
             supabase.table("subprocessos").insert({
                 "id_bloco": int(dados_dict.get("id_bloco")),
                 "fornecedor": dados_dict.get("fornecedor"),
-                "pag": int(dados_dict.get("pag")) if dados_dict.get("pag") else None,
+                "pag": parse_int(dados_dict.get("pag")),
                 "dados": dados_dict,
                 "created_at": datetime.now().isoformat()
             }).execute()

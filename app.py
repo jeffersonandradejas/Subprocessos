@@ -174,14 +174,14 @@ total_paginas = len(grupos_paginados)
 pagina = st.session_state.get("pagina", 1)
 
 # ===============================
-# CSS DOS BOTÕES (60x70)
+# CSS DOS BOTÕES (60x55)
 # ===============================
 st.markdown(
     """
     <style>
     div.stButton > button {
         width: 60px !important;
-        height: 70px !important;
+        height: 55px !important;
         padding: 0 !important;
         margin: 2px !important;
         font-size: 14px !important;

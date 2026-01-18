@@ -166,30 +166,24 @@ for fornecedor, g1 in df.groupby("fornecedor"):
         grupos_fornecedor.append(g2.copy())
 
 # ===============================
-# PAGINAÇÃO DE SUGESTÕES
+# PAGINAÇÃO DE SUGESTÕES - NOVO LAYOUT
 # ===============================
-grupos_paginados = [
-    grupos_fornecedor[i:i+SUGESTOES_POR_PAGINA]
-    for i in range(0, len(grupos_fornecedor), SUGESTOES_POR_PAGINA)
-]
-
-total_paginas = len(grupos_paginados)
 pagina = st.session_state.get("pagina", 1)
+SUGESTOES_POR_LINHA = 8  # máximo de botões por linha
+total_paginas = len(grupos_fornecedor)
 
 st.markdown("### 📌 Páginas")
 
-# NOVO LAYOUT DE BOTOES UNIFORMES
-MAX_COLS = 13
-linhas = (total_paginas + MAX_COLS - 1) // MAX_COLS  # ceil(total_paginas / MAX_COLS)
+num_linhas = (total_paginas + SUGESTOES_POR_LINHA - 1) // SUGESTOES_POR_LINHA
 
-for l in range(linhas):
-    start = l * MAX_COLS
-    end = min(start + MAX_COLS, total_paginas)
+for l in range(num_linhas):
+    start = l * SUGESTOES_POR_LINHA
+    end = min(start + SUGESTOES_POR_LINHA, total_paginas)
     cols = st.columns(end - start)
     
     for idx, i in enumerate(range(start + 1, end + 1)):
         status_pag = []
-        for bloco in grupos_paginados[i-1]:
+        for bloco in [grupos_fornecedor[i-1]]:
             idb = bloco["id_bloco"].iloc[0]
             status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
 
@@ -209,58 +203,56 @@ for l in range(linhas):
             st.session_state.pagina = i
             st.rerun()
 
+# ===============================
+# EXIBIÇÃO DA PÁGINA SELECIONADA
+# ===============================
 inicio = pagina - 1
-blocos_pagina = grupos_paginados[inicio]
+bloco = grupos_fornecedor[inicio]
+
+id_bloco = bloco["id_bloco"].iloc[0]
+status = status_blocos.get(id_bloco, {"status": "pendente"})
+
+if status["status"] == "executado":
+    icone = "🟢"
+elif status["status"] == "em_execucao" and status.get("usuario") == usuario:
+    icone = "🟡"
+else:
+    icone = "🔴"
 
 st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
+st.subheader(f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}")
 
-# ===============================
-# EXIBIÇÃO DAS SUGESTÕES COM COLUNAS REORDENADAS
-# ===============================
-for bloco in blocos_pagina:
-    id_bloco = bloco["id_bloco"].iloc[0]
-    status = status_blocos.get(id_bloco, {"status": "pendente"})
+# Novo DataFrame para exibição: apenas colunas selecionadas, linha numerada começando de 1
+bloco_display = bloco.copy().reset_index(drop=True)
+bloco_display.index = bloco_display.index + 1
+colunas_exibir = ["sol", "apoiada", "empenho", "id"]
+st.dataframe(
+    bloco_display[colunas_exibir],
+    use_container_width=True
+)
 
-    if status["status"] == "executado":
-        icone = "🟢"
-    elif status["status"] == "em_execucao" and status.get("usuario") == usuario:
-        icone = "🟡"
-    else:
-        icone = "🔴"
+c1, c2 = st.columns(2)
+if status["status"] == "pendente":
+    if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
+        supabase.table("status_blocos").upsert({
+            "id_bloco": id_bloco,
+            "status": "em_execucao",
+            "usuario": usuario,
+            "inicio": datetime.now().isoformat()
+        }).execute()
+        st.rerun()
 
-    st.subheader(f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}")
-
-    # Novo DataFrame para exibição: apenas colunas selecionadas, linha numerada começando de 1
-    bloco_display = bloco.copy().reset_index(drop=True)
-    bloco_display.index = bloco_display.index + 1  # inicia em 1
-    colunas_exibir = ["sol", "apoiada", "empenho", "id"]
-    st.dataframe(
-        bloco_display[colunas_exibir],
-        use_container_width=True
-    )
-
-    c1, c2 = st.columns(2)
-    if status["status"] == "pendente":
-        if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
-            supabase.table("status_blocos").upsert({
-                "id_bloco": id_bloco,
-                "status": "em_execucao",
-                "usuario": usuario,
-                "inicio": datetime.now().isoformat()
-            }).execute()
-            st.rerun()
-
-    if status.get("usuario") == usuario and status["status"] == "em_execucao":
-        if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
-            supabase.table("status_blocos").update({
-                "status": "executado"
-            }).eq("id_bloco", id_bloco).execute()
-            supabase.table("historico_execucao").insert({
-                "id_bloco": id_bloco,
-                "usuario": usuario,
-                "data_execucao": datetime.now().isoformat()
-            }).execute()
-            st.rerun()
+if status.get("usuario") == usuario and status["status"] == "em_execucao":
+    if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
+        supabase.table("status_blocos").update({
+            "status": "executado"
+        }).eq("id_bloco", id_bloco).execute()
+        supabase.table("historico_execucao").insert({
+            "id_bloco": id_bloco,
+            "usuario": usuario,
+            "data_execucao": datetime.now().isoformat()
+        }).execute()
+        st.rerun()
 
 # ===============================
 # HISTÓRICO

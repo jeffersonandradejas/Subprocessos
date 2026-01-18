@@ -23,6 +23,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
 SUGESTOES_POR_PAGINA = 8
+SUGESTOES_POR_LINHA = 13  # para layout de botões
 
 # ===============================
 # FUNÇÃO DE CARREGAR DADOS
@@ -129,7 +130,7 @@ if tipo_usuario == "admin":
                 supabase.table("subprocessos").insert({
                     "id_bloco": int(dados_dict.get("id_bloco")),
                     "fornecedor": dados_dict.get("fornecedor"),
-                    "pag": dados_dict.get("pag"),
+                    "pag": parse_int(dados_dict.get("pag")),
                     "dados": dados_dict,
                     "created_at": datetime.now().isoformat()
                 }).execute()
@@ -157,6 +158,10 @@ dados_cols = ["sol", "apoiada", "empenho", "id", "pag"]
 for col in dados_cols:
     df[col] = df["dados"].apply(lambda x: x.get(col) if x else None)
 
+# Adiciona numeração por linha
+df = df.reset_index(drop=True)
+df.index = df.index + 1  # inicia em 1
+
 # ===============================
 # AGRUPAMENTO INTELIGENTE (SUGESTÕES)
 # ===============================
@@ -166,56 +171,46 @@ for fornecedor, g1 in df.groupby("fornecedor"):
         grupos_fornecedor.append(g2.copy())
 
 # ===============================
-# PAGINAÇÃO DE SUGESTÕES UNIFORME
+# PAGINAÇÃO DE SUGESTÕES COM LAYOUT FIXO
 # ===============================
-grupos_paginados = [
-    grupos_fornecedor[i:i+SUGESTOES_POR_PAGINA]
-    for i in range(0, len(grupos_fornecedor), SUGESTOES_POR_PAGINA)
-]
-
-total_paginas = len(grupos_paginados)
+total_paginas = len(grupos_fornecedor)
 pagina = st.session_state.get("pagina", 1)
+
 st.markdown("### 📌 Páginas")
 
-# Botões de página com largura uniforme e scroll horizontal
-st.markdown("""
-<style>
-.page-button {
-    display: inline-block;
-    width: 60px;
-    height: 40px;
-    margin: 2px;
-    text-align: center;
-    vertical-align: middle;
-}
-.pagination-container {
-    overflow-x: auto;
-    white-space: nowrap;
-}
-</style>
-""", unsafe_allow_html=True)
+# Dividir em linhas de botões
+linhas_botao = (total_paginas + SUGESTOES_POR_LINHA - 1) // SUGESTOES_POR_LINHA
 
-st.markdown('<div class="pagination-container">', unsafe_allow_html=True)
-for i in range(1, total_paginas + 1):
-    status_pag = []
-    for bloco in grupos_paginados[i-1]:
-        idb = bloco["id_bloco"].iloc[0]
-        status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
+for linha in range(linhas_botao):
+    cols = st.columns(SUGESTOES_POR_LINHA)
+    for i in range(SUGESTOES_POR_LINHA):
+        idx = linha * SUGESTOES_POR_LINHA + i
+        if idx >= total_paginas:
+            break
 
-    if status_pag and all(s == "executado" for s in status_pag):
-        icone = "🟢"
-    elif any(s == "em_execucao" for s in status_pag):
-        icone = "🟡"
-    else:
-        icone = "🔴"
+        bloco_linha = grupos_fornecedor[idx]
+        status_pag = []
+        for bloco in [bloco_linha]:
+            idb = bloco["id_bloco"].iloc[0]
+            status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
 
-    if st.button(f"{icone} {i}", key=f"page_{i}"):
-        st.session_state.pagina = i
-        st.rerun()
-st.markdown('</div>', unsafe_allow_html=True)
+        if status_pag and all(s == "executado" for s in status_pag):
+            icone = "🟢"
+        elif any(s == "em_execucao" for s in status_pag):
+            icone = "🟡"
+        else:
+            icone = "🔴"
+
+        label = f"{icone} {idx+1}"
+        key = f"page_{idx+1}"
+
+        # botão estilizado
+        if cols[i].button(label, key=key):
+            st.session_state.pagina = idx + 1
+            st.rerun()
 
 inicio = pagina - 1
-blocos_pagina = grupos_paginados[inicio]
+blocos_pagina = [grupos_fornecedor[inicio]]
 
 st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
 
@@ -235,19 +230,12 @@ for bloco in blocos_pagina:
 
     st.subheader(f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}")
 
-    # Adicionar numeração começando em 1
-    bloco_display = bloco.copy()
-    bloco_display.insert(0, "Nº", range(1, len(bloco_display)+1))
-
-    # Mostrar colunas desejadas
+    # Exibe apenas colunas necessárias
     st.dataframe(
-        bloco_display[["Nº", "sol", "apoiada", "empenho", "id", "pag"]],
+        bloco[["sol", "apoiada", "empenho", "id"]],
         use_container_width=True
     )
 
-    # ===============================
-    # BOTÕES DE EXECUÇÃO
-    # ===============================
     c1, c2 = st.columns(2)
     if status["status"] == "pendente":
         if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):

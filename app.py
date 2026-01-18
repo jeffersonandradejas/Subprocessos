@@ -129,7 +129,7 @@ if tipo_usuario == "admin":
                 supabase.table("subprocessos").insert({
                     "id_bloco": int(dados_dict.get("id_bloco")),
                     "fornecedor": dados_dict.get("fornecedor"),
-                    "pag": parse_int(dados_dict.get("pag")),
+                    "pag": dados_dict.get("pag"),
                     "dados": dados_dict,
                     "created_at": datetime.now().isoformat()
                 }).execute()
@@ -151,7 +151,7 @@ if not subprocessos:
 df = pd.DataFrame(subprocessos)
 
 # ===============================
-# EXTRAI COLUNAS DO JSON "dados" PARA COLUNAS EXCLUSIVAS
+# EXTRAI COLUNAS DO JSON "dados"
 # ===============================
 dados_cols = ["sol", "apoiada", "empenho", "id", "pag"]
 for col in dados_cols:
@@ -166,7 +166,7 @@ for fornecedor, g1 in df.groupby("fornecedor"):
         grupos_fornecedor.append(g2.copy())
 
 # ===============================
-# PAGINAÇÃO DE SUGESTÕES
+# PAGINAÇÃO DE SUGESTÕES COM ÍCONES UNIFORMES
 # ===============================
 grupos_paginados = [
     grupos_fornecedor[i:i+SUGESTOES_POR_PAGINA]
@@ -177,23 +177,25 @@ total_paginas = len(grupos_paginados)
 pagina = st.session_state.get("pagina", 1)
 
 st.markdown("### 📌 Páginas")
-cols = st.columns(min(total_paginas, 10))
-for i in range(1, total_paginas + 1):
-    status_pag = []
-    for bloco in grupos_paginados[i-1]:
-        idb = bloco["id_bloco"].iloc[0]
-        status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
+pages_per_row = 10
+for row_start in range(0, total_paginas, pages_per_row):
+    row_end = min(row_start + pages_per_row, total_paginas)
+    cols = st.columns(row_end - row_start)
+    for idx, i in enumerate(range(row_start + 1, row_end + 1)):
+        status_pag = []
+        for bloco in grupos_paginados[i-1]:
+            idb = bloco["id_bloco"].iloc[0]
+            status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
+        if status_pag and all(s == "executado" for s in status_pag):
+            icone = "🟢"
+        elif any(s == "em_execucao" for s in status_pag):
+            icone = "🟡"
+        else:
+            icone = "🔴"
 
-    if status_pag and all(s == "executado" for s in status_pag):
-        icone = "🟢"
-    elif any(s == "em_execucao" for s in status_pag):
-        icone = "🟡"
-    else:
-        icone = "🔴"
-
-    if cols[(i-1) % len(cols)].button(f"{icone} {i}"):
-        st.session_state.pagina = i
-        st.rerun()
+        if cols[idx].button(f"{icone} {i}"):
+            st.session_state.pagina = i
+            st.rerun()
 
 inicio = pagina - 1
 blocos_pagina = grupos_paginados[inicio]
@@ -201,7 +203,7 @@ blocos_pagina = grupos_paginados[inicio]
 st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
 
 # ===============================
-# EXIBIÇÃO DAS SUGESTÕES COM COLUNAS REORDENADAS
+# EXIBIÇÃO DAS SUGESTÕES
 # ===============================
 for bloco in blocos_pagina:
     id_bloco = bloco["id_bloco"].iloc[0]
@@ -216,14 +218,11 @@ for bloco in blocos_pagina:
 
     st.subheader(f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}")
 
-    # Novo DataFrame para exibição: apenas colunas selecionadas, linha numerada começando de 1
-    bloco_display = bloco.copy().reset_index(drop=True)
-    bloco_display.index = bloco_display.index + 1  # inicia em 1
-    colunas_exibir = ["sol", "apoiada", "empenho", "id"]
-    st.dataframe(
-        bloco_display[colunas_exibir],
-        use_container_width=True
-    )
+    # Ordem das colunas e número de linha começando em 1
+    display_df = bloco[["sol", "apoiada", "empenho", "id"]].copy()
+    display_df.insert(0, "Nº", range(1, len(display_df) + 1))
+
+    st.dataframe(display_df, use_container_width=True)
 
     c1, c2 = st.columns(2)
     if status["status"] == "pendente":

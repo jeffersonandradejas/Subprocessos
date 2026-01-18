@@ -173,27 +173,7 @@ grupos_paginados = [
 total_paginas = len(grupos_paginados)
 pagina = st.session_state.get("pagina", 1)
 
-# ===============================
-# CSS DOS BOTÕES (60x30)
-# ===============================
-st.markdown(
-    """
-    <style>
-    div.stButton > button {
-        width: 60px !important;
-        height: 30px !important;
-        padding: 0 !important;
-        margin: 2px !important;
-        font-size: 14px !important;
-        white-space: normal !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
 st.markdown("### 📌 Páginas")
-
 BOTOES_POR_LINHA = 8
 
 for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
@@ -215,6 +195,23 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
             icone = "🟡"
         else:
             icone = "🔴"
+
+        # CSS apenas para os botões de paginação
+        st.markdown(
+            f"""
+            <style>
+            div.stButton > button[key="pag_{i}"] {{
+                min-width: 60px !important;
+                min-height: 35px !important;
+                padding: 0 !important;
+                margin: 2px !important;
+                font-size: 14px !important;
+                white-space: normal !important;
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
 
         if cols[offset].button(f"{icone}\n{i}", key=f"pag_{i}"):
             st.session_state.pagina = i
@@ -250,6 +247,7 @@ for bloco in blocos_pagina:
     )
 
     c1, c2 = st.columns(2)
+    # Botão de iniciar execução - mantém tamanho padrão do Streamlit
     if status["status"] == "pendente":
         if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
             supabase.table("status_blocos").upsert({
@@ -260,6 +258,7 @@ for bloco in blocos_pagina:
             }).execute()
             st.rerun()
 
+    # Botão de finalizar execução - mantém tamanho padrão
     if status.get("usuario") == usuario and status["status"] == "em_execucao":
         if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
             supabase.table("status_blocos").update({

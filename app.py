@@ -151,9 +151,9 @@ if not subprocessos:
 df = pd.DataFrame(subprocessos)
 
 # ===============================
-# EXTRAI COLUNAS DO JSON "dados"
+# EXTRAI COLUNAS DO JSON "dados" PARA COLUNAS EXCLUSIVAS
 # ===============================
-dados_cols = ["apoiada", "empenho", "id", "sol", "pag"]
+dados_cols = ["sol", "apoiada", "empenho", "id", "pag"]
 for col in dados_cols:
     df[col] = df["dados"].apply(lambda x: x.get(col) if x else None)
 
@@ -174,11 +174,10 @@ grupos_paginados = [
 ]
 
 total_paginas = len(grupos_paginados)
-
 pagina = st.session_state.get("pagina", 1)
+
 st.markdown("### 📌 Páginas")
 cols = st.columns(min(total_paginas, 10))
-
 for i in range(1, total_paginas + 1):
     status_pag = []
     for bloco in grupos_paginados[i-1]:
@@ -202,7 +201,7 @@ blocos_pagina = grupos_paginados[inicio]
 st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
 
 # ===============================
-# EXIBIÇÃO DAS SUGESTÕES
+# EXIBIÇÃO DAS SUGESTÕES COM COLUNAS REORDENADAS
 # ===============================
 for bloco in blocos_pagina:
     id_bloco = bloco["id_bloco"].iloc[0]
@@ -217,8 +216,12 @@ for bloco in blocos_pagina:
 
     st.subheader(f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}")
 
+    # Novo DataFrame para exibição: apenas colunas selecionadas, linha numerada começando de 1
+    bloco_display = bloco.copy().reset_index(drop=True)
+    bloco_display.index = bloco_display.index + 1  # inicia em 1
+    colunas_exibir = ["sol", "apoiada", "empenho", "id"]
     st.dataframe(
-        bloco[["apoiada", "empenho", "id", "sol", "pag"]],
+        bloco_display[colunas_exibir],
         use_container_width=True
     )
 

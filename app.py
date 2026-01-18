@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from supabase import create_client
@@ -88,7 +87,6 @@ if tipo_usuario == "admin":
         df_csv = pd.read_csv(arquivo)
         df_csv.columns = df_csv.columns.str.strip().str.lower()
 
-        # Filtra apenas status válidos
         if "status" in df_csv.columns:
             df_csv = df_csv[df_csv["status"].isin(ACOES_VALIDAS)]
 
@@ -98,17 +96,17 @@ if tipo_usuario == "admin":
             supabase.table("subprocessos").select("*").execute().data or []
         )
 
-        # Remove duplicados
         if not subprocessos_existentes.empty:
             existentes_json = subprocessos_existentes["dados"].apply(lambda x: str(x))
-            df_csv = df_csv[~df_csv.apply(lambda row: str(row.to_dict()) in list(existentes_json), axis=1)]
+            df_csv = df_csv[
+                ~df_csv.apply(lambda row: str(row.to_dict()) in list(existentes_json), axis=1)
+            ]
             st.info(f"{len(df_csv)} novas linhas serão importadas após remover duplicatas.")
 
         if df_csv.empty:
             st.warning("Nenhuma linha nova para importar.")
             st.stop()
 
-        # Criar blocos inteligentes
         df_csv.sort_values(by=["fornecedor", "pag"], inplace=True, ignore_index=True)
         ultimo_id_bloco = int(subprocessos_existentes["id_bloco"].max()) if not subprocessos_existentes.empty else 0
         id_bloco_atual = ultimo_id_bloco + 1
@@ -123,7 +121,6 @@ if tipo_usuario == "admin":
 
         df_final = pd.concat(blocos, ignore_index=True)
 
-        # Inserir no Supabase
         for _, row in df_final.iterrows():
             dados_dict = {k.lower(): (v if pd.notnull(v) else None) for k, v in row.items()}
             try:
@@ -141,25 +138,24 @@ if tipo_usuario == "admin":
         st.rerun()
 
 # ===============================
-# CARREGAR DADOS ATUALIZADOS
+# CARREGAR DADOS
 # ===============================
 subprocessos, status_blocos, historico = carregar_dados()
 
 if not subprocessos:
-    st.warning("Nenhum subprocesso disponível. Admin deve importar CSV.")
+    st.warning("Nenhum subprocesso disponível.")
     st.stop()
 
 df = pd.DataFrame(subprocessos)
 
 # ===============================
-# EXTRAI COLUNAS DO JSON "dados" PARA COLUNAS EXCLUSIVAS
+# EXTRAI DADOS DO JSON
 # ===============================
-dados_cols = ["sol", "apoiada", "empenho", "id", "pag"]
-for col in dados_cols:
+for col in ["sol", "apoiada", "empenho", "id", "pag"]:
     df[col] = df["dados"].apply(lambda x: x.get(col) if x else None)
 
 # ===============================
-# AGRUPAMENTO INTELIGENTE (SUGESTÕES)
+# AGRUPAMENTO
 # ===============================
 grupos_fornecedor = []
 for fornecedor, g1 in df.groupby("fornecedor"):
@@ -167,43 +163,69 @@ for fornecedor, g1 in df.groupby("fornecedor"):
         grupos_fornecedor.append(g2.copy())
 
 # ===============================
-# PAGINAÇÃO DE SUGESTÕES
+# PAGINAÇÃO
 # ===============================
 grupos_paginados = [
-    grupos_fornecedor[i:i+SUGESTOES_POR_PAGINA]
+    grupos_fornecedor[i:i + SUGESTOES_POR_PAGINA]
     for i in range(0, len(grupos_fornecedor), SUGESTOES_POR_PAGINA)
 ]
 
 total_paginas = len(grupos_paginados)
 pagina = st.session_state.get("pagina", 1)
 
+# ===============================
+# CSS DOS BOTÕES (60x70)
+# ===============================
+st.markdown(
+    """
+    <style>
+    div.stButton > button {
+        width: 60px !important;
+        height: 70px !important;
+        padding: 0 !important;
+        margin: 2px !important;
+        font-size: 14px !important;
+        white-space: normal !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 st.markdown("### 📌 Páginas")
-cols = st.columns(min(total_paginas, 10))
-for i in range(1, total_paginas + 1):
-    status_pag = []
-    for bloco in grupos_paginados[i-1]:
-        idb = bloco["id_bloco"].iloc[0]
-        status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
 
-    if status_pag and all(s == "executado" for s in status_pag):
-        icone = "🟢"
-    elif any(s == "em_execucao" for s in status_pag):
-        icone = "🟡"
-    else:
-        icone = "🔴"
+BOTOES_POR_LINHA = 8
 
-    if cols[(i-1) % len(cols)].button(f"{icone} {i}"):
-        st.session_state.pagina = i
-        st.rerun()
+for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
+    cols = st.columns(BOTOES_POR_LINHA)
 
-inicio = pagina - 1
-blocos_pagina = grupos_paginados[inicio]
+    for offset in range(BOTOES_POR_LINHA):
+        i = linha_inicio + offset + 1
+        if i > total_paginas:
+            break
 
+        status_pag = []
+        for bloco in grupos_paginados[i - 1]:
+            idb = bloco["id_bloco"].iloc[0]
+            status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
+
+        if status_pag and all(s == "executado" for s in status_pag):
+            icone = "🟢"
+        elif any(s == "em_execucao" for s in status_pag):
+            icone = "🟡"
+        else:
+            icone = "🔴"
+
+        if cols[offset].button(f"{icone}\n{i}", key=f"pag_{i}"):
+            st.session_state.pagina = i
+            st.rerun()
+
+# ===============================
+# EXIBIÇÃO
+# ===============================
+blocos_pagina = grupos_paginados[pagina - 1]
 st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
 
-# ===============================
-# EXIBIÇÃO DAS SUGESTÕES COM COLUNAS REORDENADAS
-# ===============================
 for bloco in blocos_pagina:
     id_bloco = bloco["id_bloco"].iloc[0]
     status = status_blocos.get(id_bloco, {"status": "pendente"})
@@ -215,14 +237,15 @@ for bloco in blocos_pagina:
     else:
         icone = "🔴"
 
-    st.subheader(f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}")
+    st.subheader(
+        f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}"
+    )
 
-    # Novo DataFrame para exibição: apenas colunas selecionadas, linha numerada começando de 1
     bloco_display = bloco.copy().reset_index(drop=True)
-    bloco_display.index = bloco_display.index + 1  # inicia em 1
-    colunas_exibir = ["sol", "apoiada", "empenho", "id"]
+    bloco_display.index += 1
+
     st.dataframe(
-        bloco_display[colunas_exibir],
+        bloco_display[["sol", "apoiada", "empenho", "id"]],
         use_container_width=True
     )
 

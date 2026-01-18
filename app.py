@@ -173,24 +173,26 @@ for fornecedor, g1 in df.groupby("fornecedor"):
 # ===============================
 # PAGINAÇÃO DE SUGESTÕES COM LAYOUT FIXO
 # ===============================
-total_paginas = len(grupos_fornecedor)
+# ===============================
+# PAGINAÇÃO DE SUGESTÕES (BOTOES UNIFORMES)
+# ===============================
+total_paginas = len(grupos_paginados)
 pagina = st.session_state.get("pagina", 1)
 
 st.markdown("### 📌 Páginas")
 
-# Dividir em linhas de botões
-linhas_botao = (total_paginas + SUGESTOES_POR_LINHA - 1) // SUGESTOES_POR_LINHA
+# Definir número máximo de colunas por linha
+MAX_COLS = 13
+linhas = (total_paginas + MAX_COLS - 1) // MAX_COLS  # ceil(total_paginas / MAX_COLS)
 
-for linha in range(linhas_botao):
-    cols = st.columns(SUGESTOES_POR_LINHA)
-    for i in range(SUGESTOES_POR_LINHA):
-        idx = linha * SUGESTOES_POR_LINHA + i
-        if idx >= total_paginas:
-            break
-
-        bloco_linha = grupos_fornecedor[idx]
+for l in range(linhas):
+    start = l * MAX_COLS
+    end = min(start + MAX_COLS, total_paginas)
+    cols = st.columns(end - start)
+    
+    for idx, i in enumerate(range(start + 1, end + 1)):
         status_pag = []
-        for bloco in [bloco_linha]:
+        for bloco in grupos_paginados[i-1]:
             idb = bloco["id_bloco"].iloc[0]
             status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
 
@@ -201,13 +203,16 @@ for linha in range(linhas_botao):
         else:
             icone = "🔴"
 
-        label = f"{icone} {idx+1}"
-        key = f"page_{idx+1}"
-
-        # botão estilizado
-        if cols[i].button(label, key=key):
-            st.session_state.pagina = idx + 1
+        # Botão com estilo fixo
+        button_clicked = cols[idx].button(
+            f"{icone} {i}",
+            key=f"pagina_{i}",
+            help=f"Página {i}",
+        )
+        if button_clicked:
+            st.session_state.pagina = i
             st.rerun()
+
 
 inicio = pagina - 1
 blocos_pagina = [grupos_fornecedor[inicio]]

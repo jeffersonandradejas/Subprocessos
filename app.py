@@ -123,18 +123,15 @@ if tipo_usuario == "admin":
 
         for _, row in df_final.iterrows():
             dados_dict = {k.lower(): (v if pd.notnull(v) else None) for k, v in row.items()}
-            try:
-                supabase.table("subprocessos").insert({
-                    "id_bloco": int(dados_dict.get("id_bloco")),
-                    "fornecedor": dados_dict.get("fornecedor"),
-                    "pag": parse_int(dados_dict.get("pag")),
-                    "dados": dados_dict,
-                    "created_at": datetime.now().isoformat()
-                }).execute()
-            except Exception as e:
-                st.error(f"Erro ao inserir linha {dados_dict}: {e}")
+            supabase.table("subprocessos").insert({
+                "id_bloco": int(dados_dict.get("id_bloco")),
+                "fornecedor": dados_dict.get("fornecedor"),
+                "pag": parse_int(dados_dict.get("pag")),
+                "dados": dados_dict,
+                "created_at": datetime.now().isoformat()
+            }).execute()
 
-        st.sidebar.success("CSV importado e blocos criados com sucesso!")
+        st.sidebar.success("CSV importado com sucesso!")
         st.rerun()
 
 # ===============================
@@ -142,15 +139,8 @@ if tipo_usuario == "admin":
 # ===============================
 subprocessos, status_blocos, historico = carregar_dados()
 
-if not subprocessos:
-    st.warning("Nenhum subprocesso disponível.")
-    st.stop()
-
 df = pd.DataFrame(subprocessos)
 
-# ===============================
-# EXTRAI DADOS DO JSON
-# ===============================
 for col in ["sol", "apoiada", "empenho", "id", "pag"]:
     df[col] = df["dados"].apply(lambda x: x.get(col) if x else None)
 
@@ -162,9 +152,6 @@ for fornecedor, g1 in df.groupby("fornecedor"):
     for pag, g2 in g1.groupby("pag"):
         grupos_fornecedor.append(g2.copy())
 
-# ===============================
-# PAGINAÇÃO
-# ===============================
 grupos_paginados = [
     grupos_fornecedor[i:i + SUGESTOES_POR_PAGINA]
     for i in range(0, len(grupos_fornecedor), SUGESTOES_POR_PAGINA)
@@ -174,24 +161,19 @@ total_paginas = len(grupos_paginados)
 pagina = st.session_state.get("pagina", 1)
 
 # ===============================
-# CSS DOS BOTÕES DE PAGINAÇÃO (60x35)
+# CSS PAGINAÇÃO (APENAS ELA)
 # ===============================
-st.markdown(
-    """
-    <style>
-    /* Botões de paginação */
-    div.stButton > button {
-        width: 60px !important;
-        height: 35px !important;
-        padding: 0 !important;
-        margin: 1px 2px !important; /* 1px vertical, 2px horizontal */
-        font-size: 14px !important;
-        white-space: normal !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+st.markdown("""
+<style>
+div.stButton > button {
+    width: 60px !important;
+    height: 35px !important;
+    padding: 0 !important;
+    margin: 2px !important;
+    font-size: 14px !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
 st.markdown("### 📌 Páginas")
 
@@ -199,7 +181,6 @@ BOTOES_POR_LINHA = 8
 
 for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
     cols = st.columns(BOTOES_POR_LINHA)
-
     for offset in range(BOTOES_POR_LINHA):
         i = linha_inicio + offset + 1
         if i > total_paginas:
@@ -225,33 +206,22 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
 # EXIBIÇÃO
 # ===============================
 blocos_pagina = grupos_paginados[pagina - 1]
-st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
 
 for bloco in blocos_pagina:
     id_bloco = bloco["id_bloco"].iloc[0]
     status = status_blocos.get(id_bloco, {"status": "pendente"})
 
-    if status["status"] == "executado":
-        icone = "🟢"
-    elif status["status"] == "em_execucao" and status.get("usuario") == usuario:
-        icone = "🟡"
-    else:
-        icone = "🔴"
-
     st.subheader(
-        f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}"
+        f"Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}"
     )
 
-    bloco_display = bloco.copy().reset_index(drop=True)
-    bloco_display.index += 1
-
     st.dataframe(
-        bloco_display[["sol", "apoiada", "empenho", "id"]],
+        bloco.reset_index(drop=True)[["sol", "apoiada", "empenho", "id"]],
         use_container_width=True
     )
 
-    c1, c2, c3 = st.columns(3)
-    # Botão iniciar execução (tamanho padrão Streamlit)
+    c1, c2 = st.columns(2)
+
     if status["status"] == "pendente":
         if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
             supabase.table("status_blocos").upsert({
@@ -261,25 +231,26 @@ for bloco in blocos_pagina:
                 "inicio": datetime.now().isoformat()
             }).execute()
             st.rerun()
-    # Botão desfazer execução (aparece após iniciar)
-    if status.get("usuario") == usuario and status["status"] == "em_execucao":
-        if c2.button("↩ Desfazer", key=f"desfazer_{id_bloco}"):
+
+    elif status["status"] == "em_execucao" and status.get("usuario") == usuario:
+
+        if c1.button("↩ Desfazer", key=f"desfazer_{id_bloco}"):
             supabase.table("status_blocos").update({
-                "status": "pendente",
-                "usuario": None,
-                "inicio": None
+                "status": "pendente"
             }).eq("id_bloco", id_bloco).execute()
             st.rerun()
-        # Botão finalizar execução
-        if c3.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
+
+        if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
             supabase.table("status_blocos").update({
                 "status": "executado"
             }).eq("id_bloco", id_bloco).execute()
+
             supabase.table("historico_execucao").insert({
                 "id_bloco": id_bloco,
                 "usuario": usuario,
                 "data_execucao": datetime.now().isoformat()
             }).execute()
+
             st.rerun()
 
 # ===============================

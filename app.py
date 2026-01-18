@@ -174,10 +174,28 @@ total_paginas = len(grupos_paginados)
 pagina = st.session_state.get("pagina", 1)
 
 st.markdown("### 📌 Páginas")
+
 BOTOES_POR_LINHA = 8
 
+# CSS apenas para os botões de paginação
+st.markdown(
+    """
+    <style>
+    /* Botões de paginação */
+    div.stButton > button {
+        width: 60px !important;
+        height: 35px !important;
+        padding: 0 !important;
+        font-size: 14px !important;
+        white-space: normal !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
-    cols = st.columns(BOTOES_POR_LINHA)
+    cols = st.columns(BOTOES_POR_LINHA, gap="small")  # gap controla o espaçamento horizontal entre colunas
 
     for offset in range(BOTOES_POR_LINHA):
         i = linha_inicio + offset + 1
@@ -196,26 +214,13 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
         else:
             icone = "🔴"
 
-        # CSS apenas para os botões de paginação
-        st.markdown(
-            f"""
-            <style>
-            div.stButton > button[key="pag_{i}"] {{
-                min-width: 60px !important;
-                min-height: 35px !important;
-                padding: 0 !important;
-                margin: 2px 2px !important; /* 2px cima/baixo, 2px lados */
-                font-size: 14px !important;
-                white-space: normal !important;
-            }}
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
-
         if cols[offset].button(f"{icone}\n{i}", key=f"pag_{i}"):
             st.session_state.pagina = i
             st.rerun()
+
+    # Para espaçamento entre linhas, adicionamos padding no container
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
 
 # ===============================
 # EXIBIÇÃO

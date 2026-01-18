@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 from supabase import create_client
@@ -166,39 +167,37 @@ for fornecedor, g1 in df.groupby("fornecedor"):
         grupos_fornecedor.append(g2.copy())
 
 # ===============================
-# PAGINAÇÃO DE SUGESTÕES (ALTERAÇÃO AQUI)
+# PAGINAÇÃO DE SUGESTÕES
 # ===============================
+grupos_paginados = [
+    grupos_fornecedor[i:i+SUGESTOES_POR_PAGINA]
+    for i in range(0, len(grupos_fornecedor), SUGESTOES_POR_PAGINA)
+]
+
+total_paginas = len(grupos_paginados)
 pagina = st.session_state.get("pagina", 1)
-total_paginas = len(grupos_fornecedor)
 
 st.markdown("### 📌 Páginas")
-SUGESTOES_POR_LINHA = 8
-num_linhas = (total_paginas + SUGESTOES_POR_LINHA - 1) // SUGESTOES_POR_LINHA
-
-for l in range(num_linhas):
-    start = l * SUGESTOES_POR_LINHA
-    end = min(start + SUGESTOES_POR_LINHA, total_paginas)
-    cols = st.columns(end - start)
-    
-    for idx, i in enumerate(range(start + 1, end + 1)):
-        status_pag = []
-        bloco = grupos_fornecedor[i-1]
+cols = st.columns(min(total_paginas, 10))
+for i in range(1, total_paginas + 1):
+    status_pag = []
+    for bloco in grupos_paginados[i-1]:
         idb = bloco["id_bloco"].iloc[0]
         status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
 
-        if status_pag and all(s == "executado" for s in status_pag):
-            icone = "🟢"
-        elif any(s == "em_execucao" for s in status_pag):
-            icone = "🟡"
-        else:
-            icone = "🔴"
+    if status_pag and all(s == "executado" for s in status_pag):
+        icone = "🟢"
+    elif any(s == "em_execucao" for s in status_pag):
+        icone = "🟡"
+    else:
+        icone = "🔴"
 
-        if cols[idx].button(f"{icone} {i}", key=f"pagina_{i}"):
-            st.session_state.pagina = i
-            st.rerun()
+    if cols[(i-1) % len(cols)].button(f"{icone} {i}"):
+        st.session_state.pagina = i
+        st.rerun()
 
 inicio = pagina - 1
-blocos_pagina = grupos_fornecedor[inicio:inicio+SUGESTOES_POR_PAGINA]
+blocos_pagina = grupos_paginados[inicio]
 
 st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
 
@@ -218,6 +217,7 @@ for bloco in blocos_pagina:
 
     st.subheader(f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}")
 
+    # Novo DataFrame para exibição: apenas colunas selecionadas, linha numerada começando de 1
     bloco_display = bloco.copy().reset_index(drop=True)
     bloco_display.index = bloco_display.index + 1  # inicia em 1
     colunas_exibir = ["sol", "apoiada", "empenho", "id"]

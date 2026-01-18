@@ -174,17 +174,17 @@ total_paginas = len(grupos_paginados)
 pagina = st.session_state.get("pagina", 1)
 
 # ===============================
-# CSS DOS BOTÕES DE PAGINAÇÃO
+# CSS DOS BOTÕES DE PAGINAÇÃO (60x35)
 # ===============================
 st.markdown(
     """
     <style>
-    /* Apenas os botões de paginação */
+    /* Botões de paginação */
     div.stButton > button {
         width: 60px !important;
         height: 35px !important;
         padding: 0 !important;
-        margin: 2px !important;
+        margin: 1px 2px !important; /* 1px vertical, 2px horizontal */
         font-size: 14px !important;
         white-space: normal !important;
     }
@@ -250,11 +250,8 @@ for bloco in blocos_pagina:
         use_container_width=True
     )
 
-    # ===============================
-    # BOTÕES DE EXECUÇÃO (PADRÃO STREAMLIT)
-    # ===============================
-    c1, c2, c3 = st.columns([1,1,1])  # 3 colunas: Iniciar, Desfazer, Finalizar
-
+    c1, c2, c3 = st.columns(3)
+    # Botão iniciar execução (tamanho padrão Streamlit)
     if status["status"] == "pendente":
         if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
             supabase.table("status_blocos").upsert({
@@ -264,17 +261,17 @@ for bloco in blocos_pagina:
                 "inicio": datetime.now().isoformat()
             }).execute()
             st.rerun()
-
-    elif status["status"] == "em_execucao" and status.get("usuario") == usuario:
-        if c1.button("↩ Desfazer", key=f"desfazer_{id_bloco}"):
+    # Botão desfazer execução (aparece após iniciar)
+    if status.get("usuario") == usuario and status["status"] == "em_execucao":
+        if c2.button("↩ Desfazer", key=f"desfazer_{id_bloco}"):
             supabase.table("status_blocos").update({
                 "status": "pendente",
                 "usuario": None,
                 "inicio": None
             }).eq("id_bloco", id_bloco).execute()
             st.rerun()
-
-        if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
+        # Botão finalizar execução
+        if c3.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
             supabase.table("status_blocos").update({
                 "status": "executado"
             }).eq("id_bloco", id_bloco).execute()

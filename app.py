@@ -179,8 +179,8 @@ pagina = st.session_state.get("pagina", 1)
 st.markdown(
     """
     <style>
-    /* Estilo exclusivo para botoes de paginacao */
-    div.stButton > button {
+    /* Apenas botoes dentro da classe botao-paginacao */
+    .botao-paginacao > button {
         width: 60px !important;
         height: 35px !important;
         padding: 0 !important;
@@ -215,6 +215,7 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
         else:
             icone = "🔴"
 
+        # BOTAO PAGINACAO dentro de div com classe exclusiva
         if cols[offset].button(f"{icone}\n{i}", key=f"pag_{i}"):
             st.session_state.pagina = i
             st.rerun()

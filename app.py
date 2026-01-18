@@ -4,7 +4,17 @@ from supabase import create_client
 from datetime import datetime
 
 # ===============================
-# FUNÇÃO PARA PARSEAR NÚMEROS
+# CONFIGURAÇÃO SUPABASE
+# ===============================
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
+ITENS_POR_PAGINA = 8
+
+# ===============================
+# FUNÇÃO PARA CONVERTER INTEIROS
 # ===============================
 def parse_int(valor):
     try:
@@ -13,16 +23,6 @@ def parse_int(valor):
         return int(float(str(valor).strip()))
     except (ValueError, TypeError):
         return None
-
-# ===============================
-# CONFIGURAÇÃO SUPABASE
-# ===============================
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
-SUGESTOES_POR_PAGINA = 8
 
 # ===============================
 # FUNÇÃO DE CARREGAR DADOS
@@ -87,7 +87,6 @@ if tipo_usuario == "admin":
         df_csv = pd.read_csv(arquivo)
         df_csv.columns = df_csv.columns.str.strip().str.lower()
 
-        # Filtra apenas status válidos
         if "status" in df_csv.columns:
             df_csv = df_csv[df_csv["status"].isin(ACOES_VALIDAS)]
 
@@ -97,7 +96,6 @@ if tipo_usuario == "admin":
             supabase.table("subprocessos").select("*").execute().data or []
         )
 
-        # Remove duplicados
         if not subprocessos_existentes.empty:
             existentes_json = subprocessos_existentes["dados"].apply(lambda x: str(x))
             df_csv = df_csv[~df_csv.apply(lambda row: str(row.to_dict()) in list(existentes_json), axis=1)]
@@ -107,34 +105,30 @@ if tipo_usuario == "admin":
             st.warning("Nenhuma linha nova para importar.")
             st.stop()
 
-        # Criar blocos inteligentes
+        # Ordenação e blocos inteligentes
         df_csv.sort_values(by=["fornecedor", "pag"], inplace=True, ignore_index=True)
         ultimo_id_bloco = int(subprocessos_existentes["id_bloco"].max()) if not subprocessos_existentes.empty else 0
         id_bloco_atual = ultimo_id_bloco + 1
 
         blocos = []
         for fornecedor, g1 in df_csv.groupby("fornecedor"):
-            for pag, g2 in g1.groupby("pag"):
-                g2 = g2.copy()
-                g2["id_bloco"] = id_bloco_atual
-                blocos.append(g2)
-                id_bloco_atual += 1
+            g1 = g1.copy()
+            g1["id_bloco"] = id_bloco_atual
+            blocos.append(g1)
+            id_bloco_atual += 1
 
         df_final = pd.concat(blocos, ignore_index=True)
 
-        # Inserir no Supabase
+        # Inserção no Supabase
         for _, row in df_final.iterrows():
             dados_dict = {k.lower(): (v if pd.notnull(v) else None) for k, v in row.items()}
-            try:
-                supabase.table("subprocessos").insert({
-                    "id_bloco": int(dados_dict.get("id_bloco")),
-                    "fornecedor": dados_dict.get("fornecedor"),
-                    "pag": parse_int(dados_dict.get("pag")),
-                    "dados": dados_dict,
-                    "created_at": datetime.now().isoformat()
-                }).execute()
-            except Exception as e:
-                st.error(f"Erro ao inserir linha {dados_dict}: {e}")
+            supabase.table("subprocessos").insert({
+                "id_bloco": int(dados_dict.get("id_bloco")),
+                "fornecedor": dados_dict.get("fornecedor"),
+                "pag": dados_dict.get("pag"),
+                "dados": dados_dict,
+                "created_at": datetime.now().isoformat()
+            }).execute()
 
         st.sidebar.success("CSV importado e blocos criados com sucesso!")
         st.rerun()
@@ -143,7 +137,6 @@ if tipo_usuario == "admin":
 # CARREGAR DADOS ATUALIZADOS
 # ===============================
 subprocessos, status_blocos, historico = carregar_dados()
-
 if not subprocessos:
     st.warning("Nenhum subprocesso disponível. Admin deve importar CSV.")
     st.stop()
@@ -151,37 +144,24 @@ if not subprocessos:
 df = pd.DataFrame(subprocessos)
 
 # ===============================
-# EXTRAI COLUNAS DO JSON "dados"
+# AGRUPAMENTO INTELIGENTE
 # ===============================
-dados_cols = ["apoiada", "empenho", "id", "sol", "pag"]
-for col in dados_cols:
-    df[col] = df["dados"].apply(lambda x: x.get(col) if x else None)
-
-# ===============================
-# AGRUPAMENTO INTELIGENTE (SUGESTÕES)
-# ===============================
-grupos_fornecedor = []
+grupos = []
 for fornecedor, g1 in df.groupby("fornecedor"):
-    for pag, g2 in g1.groupby("pag"):
-        grupos_fornecedor.append(g2.copy())
+    blocos_fornecedor = [g1.iloc[i:i+ITENS_POR_PAGINA] for i in range(0, len(g1), ITENS_POR_PAGINA)]
+    grupos.extend(blocos_fornecedor)
 
 # ===============================
-# PAGINAÇÃO DE SUGESTÕES
+# PAGINAÇÃO
 # ===============================
-grupos_paginados = [
-    grupos_fornecedor[i:i+SUGESTOES_POR_PAGINA]
-    for i in range(0, len(grupos_fornecedor), SUGESTOES_POR_PAGINA)
-]
-
-total_paginas = len(grupos_paginados)
-
+total_paginas = max(1, (len(grupos) - 1) // ITENS_POR_PAGINA + 1)
 pagina = st.session_state.get("pagina", 1)
 st.markdown("### 📌 Páginas")
 cols = st.columns(min(total_paginas, 10))
 
 for i in range(1, total_paginas + 1):
     status_pag = []
-    for bloco in grupos_paginados[i-1]:
+    for bloco in grupos[(i-1)*ITENS_POR_PAGINA:i*ITENS_POR_PAGINA]:
         idb = bloco["id_bloco"].iloc[0]
         status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
 
@@ -196,13 +176,14 @@ for i in range(1, total_paginas + 1):
         st.session_state.pagina = i
         st.rerun()
 
-inicio = pagina - 1
-blocos_pagina = grupos_paginados[inicio]
+inicio = (pagina - 1) * ITENS_POR_PAGINA
+fim = inicio + ITENS_POR_PAGINA
+blocos_pagina = grupos[inicio:fim]
 
 st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
 
 # ===============================
-# EXIBIÇÃO DAS SUGESTÕES
+# EXIBIÇÃO DOS BLOCOS COM COLUNAS PERSONALIZADAS
 # ===============================
 for bloco in blocos_pagina:
     id_bloco = bloco["id_bloco"].iloc[0]
@@ -217,10 +198,13 @@ for bloco in blocos_pagina:
 
     st.subheader(f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}")
 
-    st.dataframe(
-        bloco[["apoiada", "empenho", "id", "sol", "pag"]],
-        use_container_width=True
-    )
+    # COLUNA DE ORDEM
+    bloco_display = bloco.copy().reset_index(drop=True)
+    bloco_display.insert(0, "Nº", bloco_display.index + 1)
+
+    # REORDENAR COLUNAS PARA EXIBIÇÃO
+    colunas_exibir = ["Nº", "sol", "apoiada", "empenho", "id"]
+    st.dataframe(bloco_display[colunas_exibir], use_container_width=True)
 
     c1, c2 = st.columns(2)
     if status["status"] == "pendente":

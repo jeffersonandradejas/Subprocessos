@@ -174,13 +174,13 @@ total_paginas = len(grupos_paginados)
 pagina = st.session_state.get("pagina", 1)
 
 # ===============================
-# CSS APENAS PARA PAGINACAO
+# CSS DOS BOTÕES DE PAGINAÇÃO
 # ===============================
 st.markdown(
     """
     <style>
-    /* Apenas botoes dentro da classe botao-paginacao */
-    .botao-paginacao > button {
+    /* Apenas os botões de paginação */
+    div.stButton > button {
         width: 60px !important;
         height: 35px !important;
         padding: 0 !important;
@@ -205,8 +205,10 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
         if i > total_paginas:
             break
 
-        status_pag = [status_blocos.get(bloco["id_bloco"].iloc[0], {}).get("status", "pendente")
-                      for bloco in grupos_paginados[i - 1]]
+        status_pag = []
+        for bloco in grupos_paginados[i - 1]:
+            idb = bloco["id_bloco"].iloc[0]
+            status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
 
         if status_pag and all(s == "executado" for s in status_pag):
             icone = "🟢"
@@ -215,13 +217,12 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
         else:
             icone = "🔴"
 
-        # BOTAO PAGINACAO dentro de div com classe exclusiva
         if cols[offset].button(f"{icone}\n{i}", key=f"pag_{i}"):
             st.session_state.pagina = i
             st.rerun()
 
 # ===============================
-# EXIBIÇÃO DOS BLOCOS
+# EXIBIÇÃO
 # ===============================
 blocos_pagina = grupos_paginados[pagina - 1]
 st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
@@ -249,8 +250,11 @@ for bloco in blocos_pagina:
         use_container_width=True
     )
 
-    c1, c2 = st.columns(2)
-    # BOTAO INICIAR EXECUCAO (tamanho PADRAO)
+    # ===============================
+    # BOTÕES DE EXECUÇÃO (PADRÃO STREAMLIT)
+    # ===============================
+    c1, c2, c3 = st.columns([1,1,1])  # 3 colunas: Iniciar, Desfazer, Finalizar
+
     if status["status"] == "pendente":
         if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
             supabase.table("status_blocos").upsert({
@@ -261,8 +265,15 @@ for bloco in blocos_pagina:
             }).execute()
             st.rerun()
 
-    # BOTAO FINALIZAR EXECUCAO (tamanho PADRAO)
-    if status.get("usuario") == usuario and status["status"] == "em_execucao":
+    elif status["status"] == "em_execucao" and status.get("usuario") == usuario:
+        if c1.button("↩ Desfazer", key=f"desfazer_{id_bloco}"):
+            supabase.table("status_blocos").update({
+                "status": "pendente",
+                "usuario": None,
+                "inicio": None
+            }).eq("id_bloco", id_bloco).execute()
+            st.rerun()
+
         if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
             supabase.table("status_blocos").update({
                 "status": "executado"

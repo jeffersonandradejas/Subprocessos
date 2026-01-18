@@ -23,7 +23,6 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
 SUGESTOES_POR_PAGINA = 8
-SUGESTOES_POR_LINHA = 13  # para layout de botões
 
 # ===============================
 # FUNÇÃO DE CARREGAR DADOS
@@ -152,15 +151,11 @@ if not subprocessos:
 df = pd.DataFrame(subprocessos)
 
 # ===============================
-# EXTRAI COLUNAS DO JSON "dados"
+# EXTRAI COLUNAS DO JSON "dados" PARA COLUNAS EXCLUSIVAS
 # ===============================
 dados_cols = ["sol", "apoiada", "empenho", "id", "pag"]
 for col in dados_cols:
     df[col] = df["dados"].apply(lambda x: x.get(col) if x else None)
-
-# Adiciona numeração por linha
-df = df.reset_index(drop=True)
-df.index = df.index + 1  # inicia em 1
 
 # ===============================
 # AGRUPAMENTO INTELIGENTE (SUGESTÕES)
@@ -171,17 +166,19 @@ for fornecedor, g1 in df.groupby("fornecedor"):
         grupos_fornecedor.append(g2.copy())
 
 # ===============================
-# PAGINAÇÃO DE SUGESTÕES COM LAYOUT FIXO
+# PAGINAÇÃO DE SUGESTÕES
 # ===============================
-# ===============================
-# PAGINAÇÃO DE SUGESTÕES (BOTOES UNIFORMES)
-# ===============================
+grupos_paginados = [
+    grupos_fornecedor[i:i+SUGESTOES_POR_PAGINA]
+    for i in range(0, len(grupos_fornecedor), SUGESTOES_POR_PAGINA)
+]
+
 total_paginas = len(grupos_paginados)
 pagina = st.session_state.get("pagina", 1)
 
 st.markdown("### 📌 Páginas")
 
-# Definir número máximo de colunas por linha
+# NOVO LAYOUT DE BOTOES UNIFORMES
 MAX_COLS = 13
 linhas = (total_paginas + MAX_COLS - 1) // MAX_COLS  # ceil(total_paginas / MAX_COLS)
 
@@ -203,7 +200,6 @@ for l in range(linhas):
         else:
             icone = "🔴"
 
-        # Botão com estilo fixo
         button_clicked = cols[idx].button(
             f"{icone} {i}",
             key=f"pagina_{i}",
@@ -213,14 +209,13 @@ for l in range(linhas):
             st.session_state.pagina = i
             st.rerun()
 
-
 inicio = pagina - 1
-blocos_pagina = [grupos_fornecedor[inicio]]
+blocos_pagina = grupos_paginados[inicio]
 
 st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
 
 # ===============================
-# EXIBIÇÃO DAS SUGESTÕES
+# EXIBIÇÃO DAS SUGESTÕES COM COLUNAS REORDENADAS
 # ===============================
 for bloco in blocos_pagina:
     id_bloco = bloco["id_bloco"].iloc[0]
@@ -235,9 +230,12 @@ for bloco in blocos_pagina:
 
     st.subheader(f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}")
 
-    # Exibe apenas colunas necessárias
+    # Novo DataFrame para exibição: apenas colunas selecionadas, linha numerada começando de 1
+    bloco_display = bloco.copy().reset_index(drop=True)
+    bloco_display.index = bloco_display.index + 1  # inicia em 1
+    colunas_exibir = ["sol", "apoiada", "empenho", "id"]
     st.dataframe(
-        bloco[["sol", "apoiada", "empenho", "id"]],
+        bloco_display[colunas_exibir],
         use_container_width=True
     )
 

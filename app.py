@@ -177,49 +177,48 @@ st.markdown("### 📌 Páginas")
 
 BOTOES_POR_LINHA = 8
 
-# CSS apenas para os botões de paginação
-st.markdown(
-    """
-    <style>
-    /* Botões de paginação */
-    div.stButton > button {
-        width: 60px !important;
-        height: 35px !important;
-        padding: 0 !important;
-        font-size: 14px !important;
-        white-space: normal !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+# Container específico para paginação
+with st.container():
+    st.markdown(
+        """
+        <style>
+        /* CSS apenas para botoes dentro deste container */
+        .botao-paginacao > button {
+            width: 60px !important;
+            height: 35px !important;
+            padding: 0 !important;
+            margin: 2px !important;
+            font-size: 14px !important;
+            white-space: normal !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
 
-for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
-    cols = st.columns(BOTOES_POR_LINHA, gap="small")  # gap controla o espaçamento horizontal entre colunas
+    BOTOES_POR_LINHA = 8
+    for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
+        cols = st.columns(BOTOES_POR_LINHA)
+        for offset in range(BOTOES_POR_LINHA):
+            i = linha_inicio + offset + 1
+            if i > total_paginas:
+                break
 
-    for offset in range(BOTOES_POR_LINHA):
-        i = linha_inicio + offset + 1
-        if i > total_paginas:
-            break
+            # determina o ícone
+            status_pag = []
+            for bloco in grupos_paginados[i - 1]:
+                idb = bloco["id_bloco"].iloc[0]
+                status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
 
-        status_pag = []
-        for bloco in grupos_paginados[i - 1]:
-            idb = bloco["id_bloco"].iloc[0]
-            status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
+            if status_pag and all(s == "executado" for s in status_pag):
+                icone = "🟢"
+            elif any(s == "em_execucao" for s in status_pag):
+                icone = "🟡"
+            else:
+                icone = "🔴"
 
-        if status_pag and all(s == "executado" for s in status_pag):
-            icone = "🟢"
-        elif any(s == "em_execucao" for s in status_pag):
-            icone = "🟡"
-        else:
-            icone = "🔴"
-
-        if cols[offset].button(f"{icone}\n{i}", key=f"pag_{i}"):
-            st.session_state.pagina = i
-            st.rerun()
-
-    # Para espaçamento entre linhas, adicionamos padding no container
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            # botão com classe específica
+            st.markdown(f'<div class="botao-paginacao">{cols[offset].button(f"{icone}\\n{i}", key="pag_{i}")}</div>', unsafe_allow_html=True)
 
 
 # ===============================

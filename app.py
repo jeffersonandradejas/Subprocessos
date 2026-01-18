@@ -163,7 +163,7 @@ for fornecedor, g1 in df.groupby("fornecedor"):
         grupos_fornecedor.append(g2.copy())
 
 # ===============================
-# CSS apenas para paginação
+# CSS apenas para botoes de paginacao
 # ===============================
 st.markdown(
     """
@@ -206,7 +206,7 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
         else:
             icone = "🔴"
 
-        # botão de paginacao normal com key única
+        # botão de paginacao dentro de um div com classe para CSS
         if cols[offset].button(f"{icone}\n{i}", key=f"pag_{i}"):
             st.session_state.pagina = i
             st.rerun()

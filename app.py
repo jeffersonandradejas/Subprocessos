@@ -204,7 +204,7 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
                 min-width: 60px !important;
                 min-height: 35px !important;
                 padding: 0 !important;
-                margin: 4px 2px !important; /* 4px cima/baixo, 2px lados */
+                margin: 2px 2px !important; /* 2px cima/baixo, 2px lados */
                 font-size: 14px !important;
                 white-space: normal !important;
             }}

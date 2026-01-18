@@ -163,13 +163,24 @@ for fornecedor, g1 in df.groupby("fornecedor"):
         grupos_fornecedor.append(g2.copy())
 
 # ===============================
-# CSS apenas para botoes de paginacao
+# PAGINAÇÃO
+# ===============================
+grupos_paginados = [
+    grupos_fornecedor[i:i + SUGESTOES_POR_PAGINA]
+    for i in range(0, len(grupos_fornecedor), SUGESTOES_POR_PAGINA)
+]
+
+total_paginas = len(grupos_paginados)
+pagina = st.session_state.get("pagina", 1)
+
+# ===============================
+# CSS APENAS PARA PAGINACAO
 # ===============================
 st.markdown(
     """
     <style>
-    /* Apenas botoes de paginacao */
-    .botao-paginacao button {
+    /* Estilo exclusivo para botoes de paginacao */
+    div.stButton > button {
         width: 60px !important;
         height: 35px !important;
         padding: 0 !important;
@@ -188,16 +199,14 @@ BOTOES_POR_LINHA = 8
 
 for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
     cols = st.columns(BOTOES_POR_LINHA)
+
     for offset in range(BOTOES_POR_LINHA):
         i = linha_inicio + offset + 1
         if i > total_paginas:
             break
 
-        # determina o ícone
-        status_pag = []
-        for bloco in grupos_paginados[i - 1]:
-            idb = bloco["id_bloco"].iloc[0]
-            status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
+        status_pag = [status_blocos.get(bloco["id_bloco"].iloc[0], {}).get("status", "pendente")
+                      for bloco in grupos_paginados[i - 1]]
 
         if status_pag and all(s == "executado" for s in status_pag):
             icone = "🟢"
@@ -206,13 +215,12 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
         else:
             icone = "🔴"
 
-        # botão de paginacao dentro de um div com classe para CSS
         if cols[offset].button(f"{icone}\n{i}", key=f"pag_{i}"):
             st.session_state.pagina = i
             st.rerun()
 
 # ===============================
-# EXIBIÇÃO
+# EXIBIÇÃO DOS BLOCOS
 # ===============================
 blocos_pagina = grupos_paginados[pagina - 1]
 st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
@@ -241,7 +249,7 @@ for bloco in blocos_pagina:
     )
 
     c1, c2 = st.columns(2)
-    # Botão de iniciar execução - mantém tamanho padrão do Streamlit
+    # BOTAO INICIAR EXECUCAO (tamanho PADRAO)
     if status["status"] == "pendente":
         if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
             supabase.table("status_blocos").upsert({
@@ -252,7 +260,7 @@ for bloco in blocos_pagina:
             }).execute()
             st.rerun()
 
-    # Botão de finalizar execução - mantém tamanho padrão
+    # BOTAO FINALIZAR EXECUCAO (tamanho PADRAO)
     if status.get("usuario") == usuario and status["status"] == "em_execucao":
         if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
             supabase.table("status_blocos").update({

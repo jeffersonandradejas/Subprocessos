@@ -166,7 +166,7 @@ for fornecedor, g1 in df.groupby("fornecedor"):
         grupos_fornecedor.append(g2.copy())
 
 # ===============================
-# PAGINAÇÃO DE SUGESTÕES COM ÍCONES UNIFORMES
+# PAGINAÇÃO DE SUGESTÕES UNIFORME
 # ===============================
 grupos_paginados = [
     grupos_fornecedor[i:i+SUGESTOES_POR_PAGINA]
@@ -175,27 +175,44 @@ grupos_paginados = [
 
 total_paginas = len(grupos_paginados)
 pagina = st.session_state.get("pagina", 1)
-
 st.markdown("### 📌 Páginas")
-pages_per_row = 10
-for row_start in range(0, total_paginas, pages_per_row):
-    row_end = min(row_start + pages_per_row, total_paginas)
-    cols = st.columns(row_end - row_start)
-    for idx, i in enumerate(range(row_start + 1, row_end + 1)):
-        status_pag = []
-        for bloco in grupos_paginados[i-1]:
-            idb = bloco["id_bloco"].iloc[0]
-            status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
-        if status_pag and all(s == "executado" for s in status_pag):
-            icone = "🟢"
-        elif any(s == "em_execucao" for s in status_pag):
-            icone = "🟡"
-        else:
-            icone = "🔴"
 
-        if cols[idx].button(f"{icone} {i}"):
-            st.session_state.pagina = i
-            st.rerun()
+# Botões de página com largura uniforme e scroll horizontal
+st.markdown("""
+<style>
+.page-button {
+    display: inline-block;
+    width: 60px;
+    height: 40px;
+    margin: 2px;
+    text-align: center;
+    vertical-align: middle;
+}
+.pagination-container {
+    overflow-x: auto;
+    white-space: nowrap;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="pagination-container">', unsafe_allow_html=True)
+for i in range(1, total_paginas + 1):
+    status_pag = []
+    for bloco in grupos_paginados[i-1]:
+        idb = bloco["id_bloco"].iloc[0]
+        status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
+
+    if status_pag and all(s == "executado" for s in status_pag):
+        icone = "🟢"
+    elif any(s == "em_execucao" for s in status_pag):
+        icone = "🟡"
+    else:
+        icone = "🔴"
+
+    if st.button(f"{icone} {i}", key=f"page_{i}"):
+        st.session_state.pagina = i
+        st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
 
 inicio = pagina - 1
 blocos_pagina = grupos_paginados[inicio]
@@ -218,12 +235,19 @@ for bloco in blocos_pagina:
 
     st.subheader(f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}")
 
-    # Ordem das colunas e número de linha começando em 1
-    display_df = bloco[["sol", "apoiada", "empenho", "id"]].copy()
-    display_df.insert(0, "Nº", range(1, len(display_df) + 1))
+    # Adicionar numeração começando em 1
+    bloco_display = bloco.copy()
+    bloco_display.insert(0, "Nº", range(1, len(bloco_display)+1))
 
-    st.dataframe(display_df, use_container_width=True)
+    # Mostrar colunas desejadas
+    st.dataframe(
+        bloco_display[["Nº", "sol", "apoiada", "empenho", "id", "pag"]],
+        use_container_width=True
+    )
 
+    # ===============================
+    # BOTÕES DE EXECUÇÃO
+    # ===============================
     c1, c2 = st.columns(2)
     if status["status"] == "pendente":
         if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):

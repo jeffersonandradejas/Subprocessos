@@ -250,17 +250,28 @@ for bloco in blocos_pagina:
         use_container_width=True
     )
 
-    c1, c2 = st.columns(2)
-    # BOTAO INICIAR EXECUCAO (tamanho PADRAO)
-    if status["status"] == "pendente":
-        if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
+c1, c2 = st.columns(2)
+if status["status"] == "pendente":
+    if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
+        try:
+            # Garantir que id_bloco seja um int
+            id_bloco_int = int(id_bloco)
+            
+            # Upsert com valores serializáveis
             supabase.table("status_blocos").upsert({
-                "id_bloco": id_bloco,
+                "id_bloco": id_bloco_int,
                 "status": "em_execucao",
                 "usuario": usuario,
-                "inicio": datetime.now().isoformat()
+                "inicio": datetime.now().isoformat()  # ISO string segura
             }).execute()
-            st.rerun()
+
+            st.success(f"Sugestão {id_bloco} iniciada!")
+        except Exception as e:
+            st.error(f"Erro ao iniciar execução: {e}")
+
+        # Mantém na mesma página após a ação
+        st.session_state.pagina = pagina
+        st.rerun()
 
     # BOTAO FINALIZAR EXECUCAO (tamanho PADRAO)
     if status.get("usuario") == usuario and status["status"] == "em_execucao":

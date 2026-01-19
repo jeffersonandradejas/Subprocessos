@@ -250,26 +250,46 @@ for bloco in blocos_pagina:
         use_container_width=True
     )
 
+# ===============================
+# BOTÕES DE INICIAR / FINALIZAR EXECUÇÃO
+# ===============================
 c1, c2 = st.columns(2)
 
-status_atual = status.get("status", "pendente")  # evita None
+status_atual = status.get("status", "pendente")
+usuario_bloco = status.get("usuario", None)
 
+# Botão Iniciar execução
 if status_atual == "pendente":
     if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
         try:
-            id_bloco_int = int(id_bloco)
             supabase.table("status_blocos").upsert({
-                "id_bloco": id_bloco_int,
+                "id_bloco": int(id_bloco),
                 "status": "em_execucao",
                 "usuario": usuario,
                 "inicio": datetime.now().isoformat()
             }).execute()
-
             st.success(f"Sugestão {id_bloco} iniciada!")
         except Exception as e:
             st.error(f"Erro ao iniciar execução: {e}")
+        st.rerun()
 
-        st.session_state.pagina = pagina
+# Botão Finalizar execução (apenas para quem iniciou)
+if status_atual == "em_execucao" and usuario_bloco == usuario:
+    if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
+        try:
+            supabase.table("status_blocos").update({
+                "status": "executado"
+            }).eq("id_bloco", int(id_bloco)).execute()
+
+            supabase.table("historico_execucao").insert({
+                "id_bloco": int(id_bloco),
+                "usuario": usuario,
+                "data_execucao": datetime.now().isoformat()
+            }).execute()
+
+            st.success(f"Sugestão {id_bloco} finalizada!")
+        except Exception as e:
+            st.error(f"Erro ao finalizar execução: {e}")
         st.rerun()
 
     # BOTAO FINALIZAR EXECUCAO (tamanho PADRAO)

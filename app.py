@@ -22,8 +22,7 @@ SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
-SUGESTOES_POR_PAGINA = 10          # quantos blocos por página
-PAGINAS_VISIVEIS = 5              # quantos botões de página aparecem
+SUGESTOES_POR_PAGINA = 8
 
 # ===============================
 # FUNÇÃO DE CARREGAR DADOS
@@ -32,7 +31,8 @@ def carregar_dados():
     subprocessos = supabase.table("subprocessos").select("*").execute().data or []
     status_blocos_list = supabase.table("status_blocos").select("*").execute().data or []
     historico = supabase.table("historico_execucao").select("*").execute().data or []
-    status_blocos = {s["id_bloco"]: s for s in status_blocos_list}
+
+    status_blocos = {s['id_bloco']: s for s in status_blocos_list}
     return subprocessos, status_blocos, historico
 
 # ===============================
@@ -51,8 +51,11 @@ if not st.session_state.usuario_logado:
         res_user = supabase.table("usuarios").select("*").eq("usuario", usuario_input).execute()
         usuario_data = res_user.data[0] if res_user.data else None
 
-        if not usuario_data or usuario_data["senha"] != senha_input:
-            st.sidebar.error("Usuário ou senha inválidos")
+        if not usuario_data:
+            st.sidebar.error("Usuário não encontrado.")
+            st.stop()
+        if usuario_data["senha"] != senha_input:
+            st.sidebar.error("Senha incorreta.")
             st.stop()
 
         st.session_state.usuario_logado = usuario_input
@@ -68,169 +71,134 @@ else:
         st.rerun()
 
 if not st.session_state.usuario_logado:
+    st.info("Faça login para continuar.")
     st.stop()
 
 usuario = st.session_state.usuario_logado
 
 # ===============================
-# ADMIN — IMPORTAR CSV
-# ===============================
-if tipo_usuario == "admin":
-    st.sidebar.title("⚙️ Administração")
-    arquivo = st.sidebar.file_uploader("📁 Importar CSV", type="csv")
-
-    if arquivo:
-        df_csv = pd.read_csv(arquivo)
-        df_csv.columns = df_csv.columns.str.strip().str.lower()
-
-        if "status" in df_csv.columns:
-            df_csv = df_csv[df_csv["status"].isin(ACOES_VALIDAS)]
-
-        df_csv = df_csv.where(pd.notnull(df_csv), None)
-
-        subprocessos_existentes = pd.DataFrame(
-            supabase.table("subprocessos").select("*").execute().data or []
-        )
-
-        if not subprocessos_existentes.empty:
-            existentes_json = subprocessos_existentes["dados"].apply(lambda x: str(x))
-            df_csv = df_csv[
-                ~df_csv.apply(lambda row: str(row.to_dict()) in list(existentes_json), axis=1)
-            ]
-
-        if df_csv.empty:
-            st.warning("Nenhuma linha nova para importar.")
-            st.stop()
-
-        df_csv.sort_values(by=["fornecedor", "pag"], inplace=True, ignore_index=True)
-        ultimo_id_bloco = int(subprocessos_existentes["id_bloco"].max()) if not subprocessos_existentes.empty else 0
-        id_bloco_atual = ultimo_id_bloco + 1
-
-        blocos = []
-        for fornecedor, g1 in df_csv.groupby("fornecedor"):
-            for pag, g2 in g1.groupby("pag"):
-                g2 = g2.copy()
-                g2["id_bloco"] = id_bloco_atual
-                blocos.append(g2)
-                id_bloco_atual += 1
-
-        df_final = pd.concat(blocos, ignore_index=True)
-
-        for _, row in df_final.iterrows():
-            dados_dict = {k.lower(): (v if pd.notnull(v) else None) for k, v in row.items()}
-            supabase.table("subprocessos").insert({
-                "id_bloco": int(dados_dict.get("id_bloco")),
-                "fornecedor": dados_dict.get("fornecedor"),
-                "pag": parse_int(dados_dict.get("pag")),
-                "dados": dados_dict,
-                "created_at": datetime.now().isoformat()
-            }).execute()
-
-        st.sidebar.success("CSV importado com sucesso!")
-        st.rerun()
-
-# ===============================
 # CARREGAR DADOS
 # ===============================
 subprocessos, status_blocos, historico = carregar_dados()
+
 df = pd.DataFrame(subprocessos)
 
-# ===============================
-# EXTRAI DADOS DO JSON
-# ===============================
 for col in ["sol", "apoiada", "empenho", "id", "pag"]:
     df[col] = df["dados"].apply(lambda x: x.get(col) if x else None)
 
 # ===============================
-# PESQUISA
-# ===============================
-st.sidebar.title("🔍 Pesquisa")
-termo = st.sidebar.text_input("Pesquisar").lower().strip()
-
-if termo:
-    df = df[
-        df["fornecedor"].astype(str).str.lower().str.contains(termo) |
-        df["sol"].astype(str).str.lower().str.contains(termo) |
-        df["empenho"].astype(str).str.lower().str.contains(termo) |
-        df["id"].astype(str).str.lower().str.contains(termo)
-    ]
-
-# ===============================
 # AGRUPAMENTO
 # ===============================
-grupos = []
+grupos_fornecedor = []
 for fornecedor, g1 in df.groupby("fornecedor"):
     for pag, g2 in g1.groupby("pag"):
-        grupos.append(g2.copy())
+        grupos_fornecedor.append(g2.copy())
 
 grupos_paginados = [
-    grupos[i:i + SUGESTOES_POR_PAGINA]
-    for i in range(0, len(grupos), SUGESTOES_POR_PAGINA)
+    grupos_fornecedor[i:i + SUGESTOES_POR_PAGINA]
+    for i in range(0, len(grupos_fornecedor), SUGESTOES_POR_PAGINA)
 ]
 
 total_paginas = len(grupos_paginados)
+pagina = st.session_state.get("pagina", 1)
 
 # ===============================
-# PAGINAÇÃO (7 POR VEZ)
+# PAGINAÇÃO — 2 LINHAS (5 + 5)
 # ===============================
 st.markdown("### 📌 Páginas")
 
-pagina_atual = st.session_state.get("pagina", 1)
-inicio = st.session_state.get("inicio_paginas", 1)
+PAGINAS_POR_LINHA = 5
+TOTAL_PAGINAS_VISIVEIS = 10
 
-if pagina_atual < inicio:
-    inicio = pagina_atual
-elif pagina_atual >= inicio + PAGINAS_VISIVEIS:
-    inicio = pagina_atual - PAGINAS_VISIVEIS + 1
+inicio = ((pagina - 1) // TOTAL_PAGINAS_VISIVEIS) * TOTAL_PAGINAS_VISIVEIS + 1
+fim = min(inicio + TOTAL_PAGINAS_VISIVEIS - 1, total_paginas)
 
-fim = min(inicio + PAGINAS_VISIVEIS - 1, total_paginas)
-st.session_state.inicio_paginas = inicio
+historico = supabase.table("historico_execucao").select("*").execute().data or []
 
-cols = st.columns(PAGINAS_VISIVEIS + 2)
+# Linha de cima
+cols_top = st.columns(PAGINAS_POR_LINHA + 1)
 
-# ◀
 if inicio > 1:
-    if cols[0].button("◀"):
-        st.session_state.inicio_paginas = max(inicio - PAGINAS_VISIVEIS, 1)
-        st.session_state.pagina = st.session_state.inicio_paginas
+    if cols_top[0].button("◀"):
+        st.session_state.pagina = inicio - 1
         st.rerun()
 
-# páginas
-for idx, i in enumerate(range(inicio, fim + 1)):
+for idx, i in enumerate(range(inicio, min(inicio + PAGINAS_POR_LINHA, fim + 1))):
     status_pag = []
     for bloco in grupos_paginados[i - 1]:
         idb = int(bloco["id_bloco"].iloc[0])
-        status = status_blocos.get(idb, {}).get("status", "pendente")
-        if status != "executado" and any(int(h["id_bloco"]) == idb for h in historico):
-            status = "executado"
-        status_pag.append(status)
+        status_bloco = status_blocos.get(idb, {}).get("status", "pendente")
+        if status_bloco != "executado":
+            if any(int(h["id_bloco"]) == idb for h in historico):
+                status_bloco = "executado"
+        status_pag.append(status_bloco)
 
-    icone = "🟢" if all(s == "executado" for s in status_pag) else "🟡" if any(s == "executado" for s in status_pag) else "🔴"
-    label = f"👉 {icone} {i}" if i == pagina_atual else f"{icone} {i}"
+    if all(s == "executado" for s in status_pag):
+        icone = "🟢"
+    elif any(s == "executado" for s in status_pag):
+        icone = "🟡"
+    else:
+        icone = "🔴"
 
-    if cols[idx + 1].button(label, key=f"pag_{i}"):
+    label = f"{icone} {i}"
+    if i == pagina:
+        label = f"👉 {icone} {i}"
+
+    if cols_top[idx + 1].button(label, key=f"top_{i}"):
         st.session_state.pagina = i
         st.rerun()
 
-# ▶
+# Linha de baixo
+cols_bottom = st.columns(PAGINAS_POR_LINHA + 1)
+
+for idx, i in enumerate(range(inicio + PAGINAS_POR_LINHA, fim + 1)):
+    status_pag = []
+    for bloco in grupos_paginados[i - 1]:
+        idb = int(bloco["id_bloco"].iloc[0])
+        status_bloco = status_blocos.get(idb, {}).get("status", "pendente")
+        if status_bloco != "executado":
+            if any(int(h["id_bloco"]) == idb for h in historico):
+                status_bloco = "executado"
+        status_pag.append(status_bloco)
+
+    if all(s == "executado" for s in status_pag):
+        icone = "🟢"
+    elif any(s == "executado" for s in status_pag):
+        icone = "🟡"
+    else:
+        icone = "🔴"
+
+    label = f"{icone} {i}"
+    if i == pagina:
+        label = f"👉 {icone} {i}"
+
+    if cols_bottom[idx + 1].button(label, key=f"bottom_{i}"):
+        st.session_state.pagina = i
+        st.rerun()
+
 if fim < total_paginas:
-    if cols[-1].button("▶"):
-        st.session_state.inicio_paginas = fim + 1
-        st.session_state.pagina = st.session_state.inicio_paginas
+    if cols_bottom[0].button("▶"):
+        st.session_state.pagina = fim + 1
         st.rerun()
 
 # ===============================
 # EXIBIÇÃO DOS BLOCOS
 # ===============================
-st.markdown(f"### 📄 Página {pagina_atual} de {total_paginas}")
+blocos_pagina = grupos_paginados[pagina - 1]
+st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
 
-for bloco in grupos_paginados[pagina_atual - 1]:
+for bloco in blocos_pagina:
     id_bloco = int(bloco["id_bloco"].iloc[0])
-    status = status_blocos.get(id_bloco, {"status": "pendente"})
-    estado = status.get("status")
 
-    if estado != "executado" and any(int(h["id_bloco"]) == id_bloco for h in historico):
-        estado = "executado"
+    status_atual = supabase.table("status_blocos").select("*").eq("id_bloco", id_bloco).execute().data
+    status_atual = status_atual[0] if status_atual else {"status": "pendente", "usuario": None}
+
+    estado = status_atual["status"]
+    usuario_bloco = status_atual.get("usuario")
+
+    if estado != "executado":
+        if any(int(h["id_bloco"]) == id_bloco for h in historico):
+            estado = "executado"
 
     icone = "🟢" if estado == "executado" else "🟡" if estado == "em_execucao" else "🔴"
 
@@ -238,8 +206,11 @@ for bloco in grupos_paginados[pagina_atual - 1]:
         f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}"
     )
 
+    bloco_display = bloco.copy().reset_index(drop=True)
+    bloco_display.index += 1
+
     st.dataframe(
-        bloco[["sol", "apoiada", "empenho", "id"]],
+        bloco_display[["sol", "apoiada", "empenho", "id"]],
         use_container_width=True
     )
 
@@ -253,9 +224,9 @@ for bloco in grupos_paginados[pagina_atual - 1]:
                 "usuario": usuario,
                 "inicio": datetime.now().isoformat()
             }).execute()
-            st.rerun()
+            st.experimental_rerun()
 
-    elif estado == "em_execucao" and status.get("usuario") == usuario:
+    elif estado == "em_execucao" and usuario_bloco == usuario:
         if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
             supabase.table("status_blocos").update({
                 "status": "executado"
@@ -266,14 +237,14 @@ for bloco in grupos_paginados[pagina_atual - 1]:
                 "usuario": usuario,
                 "data_execucao": datetime.now().isoformat()
             }).execute()
-            st.rerun()
 
-    elif estado == "em_execucao":
-        c1.button(f"🔒 Em execução por {status.get('usuario')}", disabled=True)
+            st.experimental_rerun()
+
+    elif estado == "em_execucao" and usuario_bloco != usuario:
+        c1.button(f"🔒 Em execução por {usuario_bloco}", disabled=True)
 
 # ===============================
 # HISTÓRICO
 # ===============================
 st.sidebar.title("🗓 Histórico")
-if historico:
-    st.sidebar.dataframe(pd.DataFrame(historico))
+st.sidebar.dataframe(pd.DataFrame(historico))

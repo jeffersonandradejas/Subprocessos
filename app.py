@@ -262,29 +262,35 @@ for bloco in blocos_pagina:
     id_bloco = bloco["id_bloco"].iloc[0]
     status = status_blocos.get(id_bloco, {"status": "pendente", "usuario": None})
 
-    # ===============================
-    # ÍCONE DO STATUS
-    # ===============================
-    if status["status"] == "executado":
-        icone = "🟢"
-    elif status["status"] == "em_execucao" and status.get("usuario") == usuario:
-        icone = "🟡"
-    elif status["status"] == "em_execucao" and status.get("usuario") != usuario:
-        icone = "🟡"
-    else:
-        icone = "🔴"
+# ===============================
+# ÍCONE DO STATUS DO BLOCO (atualizado com histórico)
+# ===============================
+# Recarrega status do bloco do banco
+status_atual = supabase.table("status_blocos").select("*").eq("id_bloco", int(id_bloco)).execute().data
+if status_atual:
+    status_atual = status_atual[0]
+else:
+    status_atual = {"status": "pendente", "usuario": None}
 
-    st.subheader(
-        f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}"
-    )
+usuario_bloco = status_atual.get("usuario", None)
+estado = status_atual.get("status", "pendente")
 
-    bloco_display = bloco.copy().reset_index(drop=True)
-    bloco_display.index += 1
+# 🔹 Verifica histórico para blocos finalizados
+if estado != "executado":
+    if any(int(h.get("id_bloco")) == int(id_bloco) for h in historico):
+        estado = "executado"
 
-    st.dataframe(
-        bloco_display[["sol", "apoiada", "empenho", "id"]],
-        use_container_width=True
-    )
+# Define ícone com base no status
+if estado == "executado":
+    icone = "🟢"      # finalizado
+elif estado == "em_execucao":
+    icone = "🟡"      # em execução
+else:
+    icone = "🔴"      # pendente
+
+st.subheader(
+    f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}"
+)
 
     # ===============================
     # BOTÕES INDIVIDUAIS PARA CADA BLOCO

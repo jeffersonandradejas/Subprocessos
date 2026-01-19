@@ -219,28 +219,26 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
             idb = bloco["id_bloco"].iloc[0]
             status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
 
-        # determina ícone da página baseado no progresso
-        if status_pag and all(s == "executado" for s in status_pag):
+        # determinar ícone da página
+        if any(s == "executado" for s in status_pag) and not all(s == "executado" for s in status_pag):
+            icone = "🟡"  # pelo menos uma executada, mas não todas
+        elif all(s == "executado" for s in status_pag):
             icone = "🟢"  # todas executadas
-        elif status_pag and any(s == "executado" for s in status_pag):
-            icone = "🟡"  # pelo menos uma executada
         else:
             icone = "🔴"  # nada executado
 
-        # cria label do botão
+        # label do botão
         label = f"{icone} {i}"
-
-        # adiciona destaque para a página atual
         if i == pagina:
             if i < 10:
                 label = f"👉 ({icone} {i})"
             else:
                 label = f"👉 {icone} {i}"
 
-        # botão da página
         if cols[offset].button(label, key=f"pag_{i}"):
             st.session_state.pagina = i
             st.rerun()
+
 # ===============================
 # EXIBIÇÃO DOS BLOCOS E BOTÕES INDIVIDUAIS (INTEGRADO)
 # ===============================

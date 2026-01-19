@@ -225,7 +225,11 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
         else:
             icone = "🔴"
 
-        if cols[offset].button(f"{icone}\n{i}", key=f"pag_{i}"):
+        label = f"{icone} {i}"
+        if i == pagina:
+            label = f"👉 (» {icone} {i})"
+        
+        if cols[offset].button(label, key=f"pag_{i}"):
             st.session_state.pagina = i
             st.rerun()
 

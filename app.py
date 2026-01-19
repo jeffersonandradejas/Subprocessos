@@ -156,6 +156,25 @@ for col in ["sol", "apoiada", "empenho", "id", "pag"]:
     df[col] = df["dados"].apply(lambda x: x.get(col) if x else None)
 
 # ===============================
+# CAMPO DE PESQUISA NA SIDEBAR
+# ===============================
+st.sidebar.title("🔍 Pesquisa")
+termo_pesquisa = st.sidebar.text_input(
+    "Pesquisar por fornecedor, solicitação, empenho ou ID"
+).strip().lower()
+
+# ===============================
+# FILTRA OS DADOS COM BASE NA PESQUISA
+# ===============================
+if termo_pesquisa:
+    df = df[
+        df["fornecedor"].astype(str).str.lower().str.contains(termo_pesquisa) |
+        df["sol"].astype(str).str.lower().str.contains(termo_pesquisa) |
+        df["empenho"].astype(str).str.lower().str.contains(termo_pesquisa) |
+        df["id"].astype(str).str.lower().str.contains(termo_pesquisa)
+    ]
+
+# ===============================
 # AGRUPAMENTO
 # ===============================
 grupos_fornecedor = []

@@ -251,25 +251,24 @@ for bloco in blocos_pagina:
     )
 
 c1, c2 = st.columns(2)
-if status["status"] == "pendente":
+
+status_atual = status.get("status", "pendente")  # evita None
+
+if status_atual == "pendente":
     if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
         try:
-            # Garantir que id_bloco seja um int
             id_bloco_int = int(id_bloco)
-            
-            # Upsert com valores serializáveis
             supabase.table("status_blocos").upsert({
                 "id_bloco": id_bloco_int,
                 "status": "em_execucao",
                 "usuario": usuario,
-                "inicio": datetime.now().isoformat()  # ISO string segura
+                "inicio": datetime.now().isoformat()
             }).execute()
 
             st.success(f"Sugestão {id_bloco} iniciada!")
         except Exception as e:
             st.error(f"Erro ao iniciar execução: {e}")
 
-        # Mantém na mesma página após a ação
         st.session_state.pagina = pagina
         st.rerun()
 

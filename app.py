@@ -179,14 +179,22 @@ pagina = st.session_state.get("pagina", 1)
 st.markdown(
     """
     <style>
-    /* Apenas os botões de paginação */
-    div.stButton > button.pag_button {
-        width: 60px !important;
+    /* Apenas os botões de paginação com número no texto */
+    div.stButton > button {
+        min-width: 60px !important;
         height: 35px !important;
         padding: 0 !important;
         margin: 2px !important;
         font-size: 14px !important;
         white-space: normal !important;
+    }
+
+    /* Botões de execução (Iniciar/Finalizar) */
+    div.stButton > button:contains("Iniciar execução"),
+    div.stButton > button:contains("Finalizar execução") {
+        min-width: 180px !important;
+        height: 35px !important;
+        font-size: 16px !important;
     }
     </style>
     """,
@@ -217,7 +225,7 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
         else:
             icone = "🔴"
 
-        if cols[offset].button(f"{icone}\n{i}", key=f"pag_{i}", help=f"Página {i}", args=None, kwargs=None, on_click=None, class_="pag_button"):
+        if cols[offset].button(f"{icone}\n{i}", key=f"pag_{i}"):
             st.session_state.pagina = i
             st.rerun()
 

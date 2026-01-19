@@ -221,27 +221,26 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
 
         # determina ícone da página baseado no progresso
         if status_pag and all(s == "executado" for s in status_pag):
-            icone = "🟢"  # tudo executado
+            icone = "🟢"  # todas executadas
         elif status_pag and any(s == "executado" for s in status_pag):
-            icone = "🟡"  # começou, mas não terminou
+            icone = "🟡"  # pelo menos uma executada
         else:
             icone = "🔴"  # nada executado
 
-        # label do botão
+        # cria label do botão
         label = f"{icone} {i}"
 
         # adiciona destaque para a página atual
         if i == pagina:
-            # remove parênteses se o número for maior (mais de 1 dígito)
             if i < 10:
                 label = f"👉 ({icone} {i})"
             else:
                 label = f"👉 {icone} {i}"
 
+        # botão da página
         if cols[offset].button(label, key=f"pag_{i}"):
             st.session_state.pagina = i
             st.rerun()
-
 # ===============================
 # EXIBIÇÃO DOS BLOCOS E BOTÕES INDIVIDUAIS (INTEGRADO)
 # ===============================

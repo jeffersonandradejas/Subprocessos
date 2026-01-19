@@ -23,7 +23,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
 SUGESTOES_POR_PAGINA = 10          # quantos blocos por página
-PAGINAS_VISIVEIS = 6              # quantos botões de página aparecem
+PAGINAS_VISIVEIS = 5              # quantos botões de página aparecem
 
 # ===============================
 # FUNÇÃO DE CARREGAR DADOS

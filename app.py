@@ -22,8 +22,8 @@ SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
-SUGESTOES_POR_PAGINA = 8          # quantos blocos por página
-PAGINAS_VISIVEIS = 7              # quantos botões de página aparecem
+SUGESTOES_POR_PAGINA = 10          # quantos blocos por página
+PAGINAS_VISIVEIS = 6              # quantos botões de página aparecem
 
 # ===============================
 # FUNÇÃO DE CARREGAR DADOS

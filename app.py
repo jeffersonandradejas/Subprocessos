@@ -217,15 +217,24 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
         status_pag = []
         for bloco in grupos_paginados[i - 1]:
             idb = bloco["id_bloco"].iloc[0]
-            status_pag.append(status_blocos.get(idb, {}).get("status", "pendente"))
+            
+            # pega status do bloco
+            status_bloco = status_blocos.get(idb, {}).get("status", "pendente")
+            
+            # se não tiver status ou não for executado, verifica histórico
+            if status_bloco != "executado":
+                if any(h.get("id_bloco") == idb for h in historico):
+                    status_bloco = "executado"
+            
+            status_pag.append(status_bloco)
 
         # determinar ícone da página
         if any(s == "executado" for s in status_pag) and not all(s == "executado" for s in status_pag):
-            icone = "🟡"  # pelo menos uma executada, mas não todas
+            icone = "🟡"  # pelo menos uma executada
         elif all(s == "executado" for s in status_pag):
             icone = "🟢"  # todas executadas
         else:
-            icone = "🔴"  # nada executado
+            icone = "🔴"  # nenhuma executada
 
         # label do botão
         label = f"{icone} {i}"
@@ -238,6 +247,7 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
         if cols[offset].button(label, key=f"pag_{i}"):
             st.session_state.pagina = i
             st.rerun()
+
 
 # ===============================
 # EXIBIÇÃO DOS BLOCOS E BOTÕES INDIVIDUAIS (INTEGRADO)

@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from supabase import create_client
@@ -183,99 +182,81 @@ for fornecedor, g1 in df.groupby("fornecedor"):
         grupos_fornecedor.append(g2.copy())
 
 # ===============================
-# PAGINAÇÃO
+# PAGINAÇÃO: 8 PÁGINAS POR VEZ
 # ===============================
+SUGESTOES_POR_PAGINA = 8
 grupos_paginados = [
     grupos_fornecedor[i:i + SUGESTOES_POR_PAGINA]
     for i in range(0, len(grupos_fornecedor), SUGESTOES_POR_PAGINA)
 ]
 
 total_paginas = len(grupos_paginados)
-pagina = st.session_state.get("pagina", 1)
+pagina_atual = st.session_state.get("pagina", 1)
+primeira_pagina_bloco = st.session_state.get("primeira_pagina_bloco", 1)
 
-# ===============================
-# CSS DOS BOTÕES DE PAGINAÇÃO
-# ===============================
-st.markdown(
-    """
-    <style>
-    /* Apenas os botões de paginação com número no texto */
-    div.stButton > button {
-        min-width: 60px !important;
-        height: 35px !important;
-        padding: 0 !important;
-        margin: 2px !important;
-        font-size: 14px !important;
-        white-space: normal !important;
-    }
+# Ajusta bloco de páginas se a página atual está fora do bloco
+if pagina_atual < primeira_pagina_bloco:
+    primeira_pagina_bloco = pagina_atual
+elif pagina_atual >= primeira_pagina_bloco + SUGESTOES_POR_PAGINA:
+    primeira_pagina_bloco = pagina_atual - SUGESTOES_POR_PAGINA + 1
 
-    /* Botões de execução (Iniciar/Finalizar) */
-    div.stButton > button:contains("Iniciar execução"),
-    div.stButton > button:contains("Finalizar execução") {
-        min-width: 180px !important;
-        height: 35px !important;
-        font-size: 16px !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+ultima_pagina_bloco = min(primeira_pagina_bloco + SUGESTOES_POR_PAGINA - 1, total_paginas)
+st.session_state.primeira_pagina_bloco = primeira_pagina_bloco
 
-st.markdown("### 📌 Páginas")
+cols = st.columns(SUGESTOES_POR_PAGINA + 2)  # colunas extras para ◀ e ▶
 
-BOTOES_POR_LINHA = 8
+# Botão ◀ Anterior
+if primeira_pagina_bloco > 1:
+    if cols[0].button("◀"):
+        st.session_state.primeira_pagina_bloco = max(primeira_pagina_bloco - SUGESTOES_POR_PAGINA, 1)
+        st.session_state.pagina = st.session_state.primeira_pagina_bloco
+        st.rerun()
 
-# recarrega o histórico atualizado
+# Botões de páginas
 historico = supabase.table("historico_execucao").select("*").execute().data or []
 
-for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
-    cols = st.columns(BOTOES_POR_LINHA)
+for idx, i in enumerate(range(primeira_pagina_bloco, ultima_pagina_bloco + 1)):
+    status_pag = []
+    for bloco in grupos_paginados[i - 1]:
+        idb = int(bloco["id_bloco"].iloc[0])
+        status_bloco = status_blocos.get(idb, {}).get("status", "pendente")
+        if status_bloco != "executado":
+            if any(int(h.get("id_bloco")) == idb for h in historico):
+                status_bloco = "executado"
+        status_pag.append(status_bloco)
 
-    for offset in range(BOTOES_POR_LINHA):
-        i = linha_inicio + offset + 1
-        if i > total_paginas:
-            break
+    # Determina ícone da página
+    if all(s == "executado" for s in status_pag):
+        icone = "🟢"
+    elif any(s == "executado" for s in status_pag):
+        icone = "🟡"
+    else:
+        icone = "🔴"
 
-        status_pag = []
-        for bloco in grupos_paginados[i - 1]:
-            idb = int(bloco["id_bloco"].iloc[0])
-            
-            # status direto do bloco
-            status_bloco = status_blocos.get(idb, {}).get("status", "pendente")
-            
-            # se não estiver executado, verifica histórico
-            if status_bloco != "executado":
-                if any(int(h.get("id_bloco")) == idb for h in historico):
-                    status_bloco = "executado"
-
-            status_pag.append(status_bloco)
-
-        # determina ícone da página
-        if all(s == "executado" for s in status_pag):
-            icone = "🟢"
-        elif any(s == "executado" for s in status_pag):
-            icone = "🟡"
+    # Label do botão
+    label = f"{icone} {i}"
+    if i == pagina_atual:
+        if i < 10:
+            label = f"👉 ({icone} {i})"
         else:
-            icone = "🔴"
+            label = f"👉 {icone} {i}"
 
-        # label do botão
-        label = f"{icone} {i}"
-        if i == pagina:
-            if i < 10:
-                label = f"👉 ({icone} {i})"
-            else:
-                label = f"👉 {icone} {i}"
+    if cols[idx + 1].button(label, key=f"pag_{i}"):
+        st.session_state.pagina = i
+        st.rerun()
 
-        if cols[offset].button(label, key=f"pag_{i}"):
-            st.session_state.pagina = i
-            st.rerun()
-
+# Botão ▶ Próximo
+if ultima_pagina_bloco < total_paginas:
+    if cols[-1].button("▶"):
+        st.session_state.primeira_pagina_bloco = ultima_pagina_bloco + 1
+        st.session_state.pagina = st.session_state.primeira_pagina_bloco
+        st.rerun()
 
 # ===============================
 # EXIBIÇÃO DOS BLOCOS E BOTÕES INDIVIDUAIS
 # ===============================
-blocos_pagina = grupos_paginados[pagina - 1]
-st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
+blocos_pagina = grupos_paginados[pagina_atual - 1]
+st.markdown(f"### 📄 Página {pagina_atual} de {total_paginas}")
 
 for bloco in blocos_pagina:
     id_bloco = int(bloco["id_bloco"].iloc[0])

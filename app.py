@@ -174,12 +174,13 @@ total_paginas = len(grupos_paginados)
 pagina = st.session_state.get("pagina", 1)
 
 # ===============================
-# CSS DOS BOTÕES (apenas paginação)
+# CSS DOS BOTÕES DE PAGINAÇÃO
 # ===============================
 st.markdown(
     """
     <style>
-    div.stButton > button {
+    /* Apenas os botões de paginação */
+    div.stButton > button.pag_button {
         width: 60px !important;
         height: 35px !important;
         padding: 0 !important;
@@ -216,7 +217,7 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
         else:
             icone = "🔴"
 
-        if cols[offset].button(f"{icone}\n{i}", key=f"pag_{i}"):
+        if cols[offset].button(f"{icone}\n{i}", key=f"pag_{i}", help=f"Página {i}", args=None, kwargs=None, on_click=None, class_="pag_button"):
             st.session_state.pagina = i
             st.rerun()
 

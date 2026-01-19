@@ -205,6 +205,9 @@ st.markdown("### 📌 Páginas")
 
 BOTOES_POR_LINHA = 8
 
+# recarrega o histórico atualizado
+historico = supabase.table("historico_execucao").select("*").execute().data or []
+
 for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
     cols = st.columns(BOTOES_POR_LINHA)
 
@@ -213,28 +216,27 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
         if i > total_paginas:
             break
 
-        # coleta status de todos os blocos da página
         status_pag = []
         for bloco in grupos_paginados[i - 1]:
-            idb = bloco["id_bloco"].iloc[0]
+            idb = int(bloco["id_bloco"].iloc[0])
             
-            # pega status do bloco
+            # status direto do bloco
             status_bloco = status_blocos.get(idb, {}).get("status", "pendente")
             
-            # se não tiver status ou não for executado, verifica histórico
+            # se não estiver executado, verifica histórico
             if status_bloco != "executado":
-                if any(h.get("id_bloco") == idb for h in historico):
+                if any(int(h.get("id_bloco")) == idb for h in historico):
                     status_bloco = "executado"
-            
+
             status_pag.append(status_bloco)
 
-        # determinar ícone da página
-        if any(s == "executado" for s in status_pag) and not all(s == "executado" for s in status_pag):
-            icone = "🟡"  # pelo menos uma executada
-        elif all(s == "executado" for s in status_pag):
-            icone = "🟢"  # todas executadas
+        # determina ícone da página
+        if all(s == "executado" for s in status_pag):
+            icone = "🟢"
+        elif any(s == "executado" for s in status_pag):
+            icone = "🟡"
         else:
-            icone = "🔴"  # nenhuma executada
+            icone = "🔴"
 
         # label do botão
         label = f"{icone} {i}"

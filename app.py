@@ -4,6 +4,12 @@ from supabase import create_client
 from datetime import datetime
 
 # ===============================
+# CONFIGURAÇÃO GERAL
+# ===============================
+BOTOES_PAGINA_VISIVEIS = 7  # 👈 CONTROLA QUANTAS PÁGINAS APARECEM
+SUGESTOES_POR_PAGINA = 8    # 👈 QUANTOS BLOCOS POR PÁGINA
+
+# ===============================
 # FUNÇÃO PARA PARSEAR NÚMEROS
 # ===============================
 def parse_int(valor):
@@ -21,9 +27,6 @@ SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-ACOES_VALIDAS = ["ASSINAR OD", "ASSINAR CH"]
-SUGESTOES_POR_PAGINA = 8
-
 # ===============================
 # FUNÇÃO DE CARREGAR DADOS
 # ===============================
@@ -31,8 +34,7 @@ def carregar_dados():
     subprocessos = supabase.table("subprocessos").select("*").execute().data or []
     status_blocos_list = supabase.table("status_blocos").select("*").execute().data or []
     historico = supabase.table("historico_execucao").select("*").execute().data or []
-
-    status_blocos = {s['id_bloco']: s for s in status_blocos_list}
+    status_blocos = {s["id_bloco"]: s for s in status_blocos_list}
     return subprocessos, status_blocos, historico
 
 # ===============================
@@ -44,108 +46,26 @@ if "usuario_logado" not in st.session_state:
     st.session_state.usuario_logado = None
 
 if not st.session_state.usuario_logado:
-    usuario_input = st.sidebar.text_input("Nome do usuário")
+    usuario_input = st.sidebar.text_input("Usuário")
     senha_input = st.sidebar.text_input("Senha", type="password")
 
-    if st.sidebar.button("🔐 Entrar"):
-        res_user = supabase.table("usuarios").select("*").eq("usuario", usuario_input).execute()
-        usuario_data = res_user.data[0] if res_user.data else None
-
-        if not usuario_data:
-            st.sidebar.error("Usuário não encontrado.")
-            st.stop()
-        if usuario_data["senha"] != senha_input:
-            st.sidebar.error("Senha incorreta.")
+    if st.sidebar.button("Entrar"):
+        res = supabase.table("usuarios").select("*").eq("usuario", usuario_input).execute()
+        if not res.data or res.data[0]["senha"] != senha_input:
+            st.sidebar.error("Usuário ou senha inválidos")
             st.stop()
 
         st.session_state.usuario_logado = usuario_input
         st.rerun()
-else:
-    usuario = st.session_state.usuario_logado
-    res_user = supabase.table("usuarios").select("*").eq("usuario", usuario).execute()
-    tipo_usuario = res_user.data[0]["tipo"]
-    st.sidebar.success(f"Olá {usuario}!")
-
-    if st.sidebar.button("🚪 Sair"):
-        st.session_state.usuario_logado = None
-        st.rerun()
-
-if not st.session_state.usuario_logado:
-    st.info("Faça login para continuar.")
-    st.stop()
 
 usuario = st.session_state.usuario_logado
-
-# ===============================
-# ADMIN — IMPORTAR CSV
-# ===============================
-if tipo_usuario == "admin":
-    st.sidebar.title("⚙️ Administração")
-    arquivo = st.sidebar.file_uploader("📁 Importar CSV", type="csv")
-
-    if arquivo:
-        df_csv = pd.read_csv(arquivo)
-        df_csv.columns = df_csv.columns.str.strip().str.lower()
-
-        if "status" in df_csv.columns:
-            df_csv = df_csv[df_csv["status"].isin(ACOES_VALIDAS)]
-
-        df_csv = df_csv.where(pd.notnull(df_csv), None)
-
-        subprocessos_existentes = pd.DataFrame(
-            supabase.table("subprocessos").select("*").execute().data or []
-        )
-
-        if not subprocessos_existentes.empty:
-            existentes_json = subprocessos_existentes["dados"].apply(lambda x: str(x))
-            df_csv = df_csv[
-                ~df_csv.apply(lambda row: str(row.to_dict()) in list(existentes_json), axis=1)
-            ]
-            st.info(f"{len(df_csv)} novas linhas serão importadas após remover duplicatas.")
-
-        if df_csv.empty:
-            st.warning("Nenhuma linha nova para importar.")
-            st.stop()
-
-        df_csv.sort_values(by=["fornecedor", "pag"], inplace=True, ignore_index=True)
-        ultimo_id_bloco = int(subprocessos_existentes["id_bloco"].max()) if not subprocessos_existentes.empty else 0
-        id_bloco_atual = ultimo_id_bloco + 1
-
-        blocos = []
-        for fornecedor, g1 in df_csv.groupby("fornecedor"):
-            for pag, g2 in g1.groupby("pag"):
-                g2 = g2.copy()
-                g2["id_bloco"] = id_bloco_atual
-                blocos.append(g2)
-                id_bloco_atual += 1
-
-        df_final = pd.concat(blocos, ignore_index=True)
-
-        for _, row in df_final.iterrows():
-            dados_dict = {k.lower(): (v if pd.notnull(v) else None) for k, v in row.items()}
-            try:
-                supabase.table("subprocessos").insert({
-                    "id_bloco": int(dados_dict.get("id_bloco")),
-                    "fornecedor": dados_dict.get("fornecedor"),
-                    "pag": parse_int(dados_dict.get("pag")),
-                    "dados": dados_dict,
-                    "created_at": datetime.now().isoformat()
-                }).execute()
-            except Exception as e:
-                st.error(f"Erro ao inserir linha {dados_dict}: {e}")
-
-        st.sidebar.success("CSV importado e blocos criados com sucesso!")
-        st.rerun()
+if not usuario:
+    st.stop()
 
 # ===============================
 # CARREGAR DADOS
 # ===============================
 subprocessos, status_blocos, historico = carregar_dados()
-
-if not subprocessos:
-    st.warning("Nenhum subprocesso disponível.")
-    st.stop()
-
 df = pd.DataFrame(subprocessos)
 
 # ===============================
@@ -155,77 +75,68 @@ for col in ["sol", "apoiada", "empenho", "id", "pag"]:
     df[col] = df["dados"].apply(lambda x: x.get(col) if x else None)
 
 # ===============================
-# CAMPO DE PESQUISA NA SIDEBAR
+# PESQUISA
 # ===============================
 st.sidebar.title("🔍 Pesquisa")
-termo_pesquisa = st.sidebar.text_input(
-    "Pesquisar por fornecedor, solicitação, empenho ou ID"
-).strip().lower()
+termo = st.sidebar.text_input("Buscar").lower().strip()
 
-# ===============================
-# FILTRA OS DADOS COM BASE NA PESQUISA
-# ===============================
-if termo_pesquisa:
+if termo:
     df = df[
-        df["fornecedor"].astype(str).str.lower().str.contains(termo_pesquisa) |
-        df["sol"].astype(str).str.lower().str.contains(termo_pesquisa) |
-        df["empenho"].astype(str).str.lower().str.contains(termo_pesquisa) |
-        df["id"].astype(str).str.lower().str.contains(termo_pesquisa)
+        df["fornecedor"].astype(str).str.lower().str.contains(termo) |
+        df["sol"].astype(str).str.lower().str.contains(termo) |
+        df["empenho"].astype(str).str.lower().str.contains(termo) |
+        df["id"].astype(str).str.lower().str.contains(termo)
     ]
 
 # ===============================
 # AGRUPAMENTO
 # ===============================
-grupos_fornecedor = []
+grupos = []
 for fornecedor, g1 in df.groupby("fornecedor"):
     for pag, g2 in g1.groupby("pag"):
-        grupos_fornecedor.append(g2.copy())
+        grupos.append(g2.copy())
 
-# ===============================
-# PAGINAÇÃO: 8 PÁGINAS POR VEZ
-# ===============================
-BOTOES_POR_LINHA = 7
 grupos_paginados = [
-    grupos_fornecedor[i:i + SUGESTOES_POR_PAGINA]
-    for i in range(0, len(grupos_fornecedor), SUGESTOES_POR_PAGINA)
+    grupos[i:i + SUGESTOES_POR_PAGINA]
+    for i in range(0, len(grupos), SUGESTOES_POR_PAGINA)
 ]
 
 total_paginas = len(grupos_paginados)
+
+# ===============================
+# PAGINAÇÃO (7 POR VEZ)
+# ===============================
 pagina_atual = st.session_state.get("pagina", 1)
-primeira_pagina_bloco = st.session_state.get("primeira_pagina_bloco", 1)
+bloco_inicio = st.session_state.get("bloco_inicio", 1)
 
-# Ajusta bloco de páginas se a página atual está fora do bloco
-if pagina_atual < primeira_pagina_bloco:
-    primeira_pagina_bloco = pagina_atual
-elif pagina_atual >= primeira_pagina_bloco + SUGESTOES_POR_PAGINA:
-    primeira_pagina_bloco = pagina_atual - SUGESTOES_POR_PAGINA + 1
+if pagina_atual < bloco_inicio:
+    bloco_inicio = pagina_atual
+elif pagina_atual >= bloco_inicio + BOTOES_PAGINA_VISIVEIS:
+    bloco_inicio = pagina_atual - BOTOES_PAGINA_VISIVEIS + 1
 
-ultima_pagina_bloco = min(primeira_pagina_bloco + SUGESTOES_POR_PAGINA - 1, total_paginas)
-st.session_state.primeira_pagina_bloco = primeira_pagina_bloco
+bloco_fim = min(bloco_inicio + BOTOES_PAGINA_VISIVEIS - 1, total_paginas)
+st.session_state.bloco_inicio = bloco_inicio
 
-cols = st.columns(SUGESTOES_POR_PAGINA + 2)  # colunas extras para ◀ e ▶
+cols = st.columns(BOTOES_PAGINA_VISIVEIS + 2)
 
-# Botão ◀ Anterior
-if primeira_pagina_bloco > 1:
+# ◀ Anterior
+if bloco_inicio > 1:
     if cols[0].button("◀"):
-        st.session_state.primeira_pagina_bloco = max(primeira_pagina_bloco - SUGESTOES_POR_PAGINA, 1)
-        st.session_state.pagina = st.session_state.primeira_pagina_bloco
+        st.session_state.bloco_inicio = max(bloco_inicio - BOTOES_PAGINA_VISIVEIS, 1)
+        st.session_state.pagina = st.session_state.bloco_inicio
         st.rerun()
 
-# Botões de páginas
-historico = supabase.table("historico_execucao").select("*").execute().data or []
-
-for idx, i in enumerate(range(primeira_pagina_bloco, ultima_pagina_bloco + 1)):
+# Botões numerados
+for idx, i in enumerate(range(bloco_inicio, bloco_fim + 1)):
     status_pag = []
+
     for bloco in grupos_paginados[i - 1]:
         idb = int(bloco["id_bloco"].iloc[0])
-        status_bloco = status_blocos.get(idb, {}).get("status", "pendente")
-        if status_bloco != "executado":
-            if any(int(h.get("id_bloco")) == idb for h in historico):
-                status_bloco = "executado"
-        status_pag.append(status_bloco)
+        status = status_blocos.get(idb, {}).get("status", "pendente")
+        if status != "executado" and any(int(h["id_bloco"]) == idb for h in historico):
+            status = "executado"
+        status_pag.append(status)
 
-    # Determina ícone da página
     if all(s == "executado" for s in status_pag):
         icone = "🟢"
     elif any(s == "executado" for s in status_pag):
@@ -233,111 +144,45 @@ for idx, i in enumerate(range(primeira_pagina_bloco, ultima_pagina_bloco + 1)):
     else:
         icone = "🔴"
 
-    # Label do botão
     label = f"{icone} {i}"
     if i == pagina_atual:
-        if i < 10:
-            label = f"👉 ({icone} {i})"
-        else:
-            label = f"👉 {icone} {i}"
+        label = f"👉 ({icone} {i})"
 
     if cols[idx + 1].button(label, key=f"pag_{i}"):
         st.session_state.pagina = i
         st.rerun()
 
-# Botão ▶ Próximo
-if ultima_pagina_bloco < total_paginas:
+# ▶ Próximo
+if bloco_fim < total_paginas:
     if cols[-1].button("▶"):
-        st.session_state.primeira_pagina_bloco = ultima_pagina_bloco + 1
-        st.session_state.pagina = st.session_state.primeira_pagina_bloco
+        st.session_state.bloco_inicio = bloco_fim + 1
+        st.session_state.pagina = st.session_state.bloco_inicio
         st.rerun()
 
 # ===============================
-# EXIBIÇÃO DOS BLOCOS E BOTÕES INDIVIDUAIS
+# EXIBIÇÃO DOS BLOCOS
 # ===============================
-blocos_pagina = grupos_paginados[pagina_atual - 1]
 st.markdown(f"### 📄 Página {pagina_atual} de {total_paginas}")
+blocos_pagina = grupos_paginados[pagina_atual - 1]
 
 for bloco in blocos_pagina:
     id_bloco = int(bloco["id_bloco"].iloc[0])
+    status = status_blocos.get(id_bloco, {"status": "pendente"})
+    estado = status.get("status")
 
-    # Recarrega status do bloco do banco
-    status_atual = supabase.table("status_blocos").select("*").eq("id_bloco", id_bloco).execute().data
-    if status_atual:
-        status_atual = status_atual[0]
-    else:
-        status_atual = {"status": "pendente", "usuario": None}
+    if estado != "executado" and any(int(h["id_bloco"]) == id_bloco for h in historico):
+        estado = "executado"
 
-    usuario_bloco = status_atual.get("usuario", None)
-    estado = status_atual.get("status", "pendente")
-
-    # 🔹 Verifica histórico para blocos finalizados
-    if estado != "executado":
-        if any(int(h.get("id_bloco")) == id_bloco for h in historico):
-            estado = "executado"
-
-    # Define ícone com base no status
-    if estado == "executado":
-        icone = "🟢"
-    elif estado == "em_execucao":
-        icone = "🟡"
-    else:
-        icone = "🔴"
+    icone = "🟢" if estado == "executado" else "🟡" if estado == "em_execucao" else "🔴"
 
     st.subheader(
         f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}"
     )
 
-    # Mostra tabela do bloco
-    bloco_display = bloco.copy().reset_index(drop=True)
-    bloco_display.index += 1
     st.dataframe(
-        bloco_display[["sol", "apoiada", "empenho", "id"]],
+        bloco[["sol", "apoiada", "empenho", "id"]],
         use_container_width=True
     )
-
-    # ===============================
-    # BOTÕES INDIVIDUAIS PARA CADA BLOCO
-    # ===============================
-    c1, c2 = st.columns(2)
-
-    # Botão iniciar execução
-    if estado == "pendente":
-        if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
-            try:
-                supabase.table("status_blocos").upsert({
-                    "id_bloco": id_bloco,
-                    "status": "em_execucao",
-                    "usuario": usuario,
-                    "inicio": datetime.now().isoformat()
-                }).execute()
-                st.success(f"Sugestão {id_bloco} iniciada!")
-            except Exception as e:
-                st.error(f"Erro ao iniciar execução: {e}")
-            st.experimental_rerun()
-
-    # Botão finalizar execução (somente para quem iniciou)
-    elif estado == "em_execucao" and usuario_bloco == usuario:
-        if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
-            try:
-                supabase.table("status_blocos").update({
-                    "status": "executado"
-                }).eq("id_bloco", id_bloco).execute()
-
-                supabase.table("historico_execucao").insert({
-                    "id_bloco": id_bloco,
-                    "usuario": usuario,
-                    "data_execucao": datetime.now().isoformat()
-                }).execute()
-
-                st.success(f"Sugestão {id_bloco} finalizada!")
-            except Exception as e:
-                st.error(f"Erro ao finalizar execução: {e}")
-            st.experimental_rerun()
-
-    # Bloqueado para outro usuário
-    elif estado == "em_execucao" and usuario_bloco != usuario:
-        c1.button(f"🔒 Em execução por {usuario_bloco}", disabled=True, key=f"bloqueado_{id_bloco}")
 
 # ===============================
 # HISTÓRICO
@@ -345,5 +190,3 @@ for bloco in blocos_pagina:
 st.sidebar.title("🗓 Histórico")
 if historico:
     st.sidebar.dataframe(pd.DataFrame(historico))
-else:
-    st.sidebar.info("Nenhum subprocesso executado ainda.")

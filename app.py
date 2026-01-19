@@ -206,7 +206,7 @@ for idx, i in enumerate(range(inicio, fim + 1)):
         status_pag.append(status)
 
     icone = "🟢" if all(s == "executado" for s in status_pag) else "🟡" if any(s == "executado" for s in status_pag) else "🔴"
-    label = f"👉 ({icone} {i})" if i == pagina_atual else f"{icone} {i}"
+    label = f"👉 {icone} {i}" if i == pagina_atual else f"{icone} {i}"
 
     if cols[idx + 1].button(label, key=f"pag_{i}"):
         st.session_state.pagina = i

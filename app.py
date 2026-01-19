@@ -316,23 +316,25 @@ for bloco in blocos_pagina:
             st.experimental_rerun()
 
     # Botão finalizar execução (somente para quem iniciou)
+    # Botão finalizar execução (somente para quem iniciou)
     elif estado == "em_execucao" and usuario_bloco == usuario:
         if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
             try:
                 supabase.table("status_blocos").update({
                     "status": "executado"
                 }).eq("id_bloco", int(id_bloco)).execute()
-
+    
                 supabase.table("historico_execucao").insert({
                     "id_bloco": int(id_bloco),
                     "usuario": usuario,
                     "data_execucao": datetime.now().isoformat()
                 }).execute()
-
+    
                 st.success(f"Sugestão {id_bloco} finalizada!")
             except Exception as e:
                 st.error(f"Erro ao finalizar execução: {e}")
             st.experimental_rerun()
+
 
     # Bloqueado para outro usuário
     elif estado == "em_execucao" and usuario_bloco != usuario:

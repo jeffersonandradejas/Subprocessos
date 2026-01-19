@@ -225,6 +225,10 @@ st.markdown("### 📌 Páginas")
 
 BOTOES_POR_LINHA = 8
 
+for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
+    cols = st.columns(BOTOES_POR_LINHA)
+    ...
+
 # recarrega o histórico atualizado
 historico = supabase.table("historico_execucao").select("*").execute().data or []
 

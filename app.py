@@ -184,7 +184,7 @@ for fornecedor, g1 in df.groupby("fornecedor"):
 # ===============================
 # PAGINAÇÃO: 8 PÁGINAS POR VEZ
 # ===============================
-SUGESTOES_POR_PAGINA = 8
+BOTOES_POR_LINHA = 7
 grupos_paginados = [
     grupos_fornecedor[i:i + SUGESTOES_POR_PAGINA]
     for i in range(0, len(grupos_fornecedor), SUGESTOES_POR_PAGINA)

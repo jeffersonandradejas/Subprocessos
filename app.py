@@ -221,18 +221,23 @@ for linha_inicio in range(0, total_paginas, BOTOES_POR_LINHA):
             st.rerun()
 
 # ===============================
-# EXIBIÇÃO DOS BLOCOS E BOTÕES INDIVIDUAIS
+# EXIBIÇÃO DOS BLOCOS E BOTÕES INDIVIDUAIS (INTEGRADO)
 # ===============================
 blocos_pagina = grupos_paginados[pagina - 1]
 st.markdown(f"### 📄 Página {pagina} de {total_paginas}")
 
 for bloco in blocos_pagina:
     id_bloco = bloco["id_bloco"].iloc[0]
-    status = status_blocos.get(id_bloco, {"status": "pendente"})
+    status = status_blocos.get(id_bloco, {"status": "pendente", "usuario": None})
 
+    # ===============================
+    # ÍCONE DO STATUS
+    # ===============================
     if status["status"] == "executado":
         icone = "🟢"
     elif status["status"] == "em_execucao" and status.get("usuario") == usuario:
+        icone = "🟡"
+    elif status["status"] == "em_execucao" and status.get("usuario") != usuario:
         icone = "🟡"
     else:
         icone = "🔴"
@@ -249,58 +254,58 @@ for bloco in blocos_pagina:
         use_container_width=True
     )
 
- # ===============================
-# BOTÕES INDIVIDUAIS PARA CADA BLOCO
-# ===============================
-c1, c2 = st.columns(2)
+    # ===============================
+    # BOTÕES INDIVIDUAIS PARA CADA BLOCO
+    # ===============================
+    c1, c2 = st.columns(2)
 
-# Recarrega status do bloco do banco
-status_atual = supabase.table("status_blocos").select("*").eq("id_bloco", int(id_bloco)).execute().data
-if status_atual:
-    status_atual = status_atual[0]
-else:
-    status_atual = {"status": "pendente", "usuario": None}
+    # Recarrega status do bloco do banco
+    status_atual = supabase.table("status_blocos").select("*").eq("id_bloco", int(id_bloco)).execute().data
+    if status_atual:
+        status_atual = status_atual[0]
+    else:
+        status_atual = {"status": "pendente", "usuario": None}
 
-usuario_bloco = status_atual.get("usuario", None)
-estado = status_atual.get("status", "pendente")
+    usuario_bloco = status_atual.get("usuario", None)
+    estado = status_atual.get("status", "pendente")
 
-# Botão iniciar execução
-if estado == "pendente":
-    if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
-        try:
-            supabase.table("status_blocos").upsert({
-                "id_bloco": int(id_bloco),
-                "status": "em_execucao",
-                "usuario": usuario,
-                "inicio": datetime.now().isoformat()
-            }).execute()
-            st.success(f"Sugestão {id_bloco} iniciada!")
-        except Exception as e:
-            st.error(f"Erro ao iniciar execução: {e}")
-        st.experimental_rerun()  # recarrega a página
+    # Botão iniciar execução
+    if estado == "pendente":
+        if c1.button("▶ Iniciar execução", key=f"iniciar_{id_bloco}"):
+            try:
+                supabase.table("status_blocos").upsert({
+                    "id_bloco": int(id_bloco),
+                    "status": "em_execucao",
+                    "usuario": usuario,
+                    "inicio": datetime.now().isoformat()
+                }).execute()
+                st.success(f"Sugestão {id_bloco} iniciada!")
+            except Exception as e:
+                st.error(f"Erro ao iniciar execução: {e}")
+            st.experimental_rerun()
 
-# Botão finalizar execução (somente para quem iniciou)
-elif estado == "em_execucao" and usuario_bloco == usuario:
-    if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
-        try:
-            supabase.table("status_blocos").update({
-                "status": "executado"
-            }).eq("id_bloco", int(id_bloco)).execute()
+    # Botão finalizar execução (somente para quem iniciou)
+    elif estado == "em_execucao" and usuario_bloco == usuario:
+        if c2.button("✔ Finalizar execução", key=f"finalizar_{id_bloco}"):
+            try:
+                supabase.table("status_blocos").update({
+                    "status": "executado"
+                }).eq("id_bloco", int(id_bloco)).execute()
 
-            supabase.table("historico_execucao").insert({
-                "id_bloco": int(id_bloco),
-                "usuario": usuario,
-                "data_execucao": datetime.now().isoformat()
-            }).execute()
+                supabase.table("historico_execucao").insert({
+                    "id_bloco": int(id_bloco),
+                    "usuario": usuario,
+                    "data_execucao": datetime.now().isoformat()
+                }).execute()
 
-            st.success(f"Sugestão {id_bloco} finalizada!")
-        except Exception as e:
-            st.error(f"Erro ao finalizar execução: {e}")
-        st.experimental_rerun()
+                st.success(f"Sugestão {id_bloco} finalizada!")
+            except Exception as e:
+                st.error(f"Erro ao finalizar execução: {e}")
+            st.experimental_rerun()
 
-# Bloqueado para outro usuário
-elif estado == "em_execucao" and usuario_bloco != usuario:
-    c1.button(f"🔒 Em execução por {usuario_bloco}", disabled=True, key=f"bloqueado_{id_bloco}")
+    # Bloqueado para outro usuário
+    elif estado == "em_execucao" and usuario_bloco != usuario:
+        c1.button(f"🔒 Em execução por {usuario_bloco}", disabled=True, key=f"bloqueado_{id_bloco}")
 
 # ===============================
 # HISTÓRICO

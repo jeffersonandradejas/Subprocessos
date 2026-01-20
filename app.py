@@ -240,7 +240,10 @@ for bloco in grupos_paginados[pagina_atual - 1]:
 
     icone = "🟢" if estado == "executado" else "🟡" if estado == "em_execucao" else "🔴"
 
-    st.subheader(f"{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}")
+    st.markdown(
+    f"<h4>{icone} Sugestão - Fornecedor: {bloco['fornecedor'].iloc[0]} | PAG: {bloco['pag'].iloc[0]}</h4>",
+    unsafe_allow_html=True
+)
 
     st.dataframe(bloco[["sol", "apoiada", "empenho", "id"]], use_container_width=True)
 

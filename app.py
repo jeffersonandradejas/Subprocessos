@@ -107,7 +107,7 @@ if tipo_usuario == "admin":
 
         df_final = pd.concat(blocos, ignore_index=True)
         for _, row in df_final.iterrows():
-            dados_dict = {k.lower(): (v if pd.notnull(v) else None) for k, v in row.items()}
+            dados_dict = {k.lower(): (str(v) if v is not None else None) for k, v in row.items()}
             supabase.table("subprocessos").insert({
                 "id_bloco": int(dados_dict.get("id_bloco")),
                 "fornecedor": dados_dict.get("fornecedor"),
